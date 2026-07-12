@@ -1,0 +1,12 @@
+services:
+  teddys-designwahnsinn:
+    build: .
+    container_name: teddys-designwahnsinn
+    ports:
+      - "8080:3000"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    env_file:
+      - .env
+    restart: unless-stopped

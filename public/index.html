@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teddys Designwahnsinn</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-inner">
+      <span class="brand"><img src="images/teddy-icon.png" alt="" class="nav-icon">Teddys Designwahnsinn</span>
+      <div class="nav-links">
+        <a href="#about">Über uns</a>
+        <a href="#gallery">Designs</a>
+        <a href="#contact">Kontakt</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="hero-inner">
+      <img src="images/teddy-logo-full.png" alt="Teddys Designwahnsinn Logo" class="hero-logo">
+      <h1 class="visually-hidden">Teddys Designwahnsinn</h1>
+      <p class="subtitle">Bunte Stoffdesigns – entworfen mit Liebe zum Detail</p>
+    </div>
+  </header>
+
+  <main>
+    <section id="about">
+      <h2>Über uns</h2>
+      <p>Teddys Designwahnsinn steht für fröhliche, individuelle Stoffdesigns. Jedes Muster entsteht mit Canva und erzählt seine eigene kleine Geschichte – von verspielten Motiven bis zu ruhigen, eleganten Mustern.</p>
+    </section>
+
+    <section id="gallery">
+      <h2>Designs</h2>
+
+      <div class="search-bar">
+        <input type="search" id="design-search" placeholder="Design suchen…" aria-label="Designs durchsuchen">
+      </div>
+
+      <div class="cards" id="design-cards"></div>
+      <p class="hint" id="no-results" hidden>Keine Designs gefunden.</p>
+      <p class="hint" id="empty-state" hidden>Noch keine Designs hochgeladen.</p>
+    </section>
+
+    <section id="contact">
+      <h2>Kontakt</h2>
+      <p><a href="mailto:pfeiferjannik@gmail.com">pfeiferjannik@gmail.com</a></p>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Teddys Designwahnsinn</p>
+    <p><a class="footer-link" href="/mitarbeiter">Mitarbeiter-Login</a></p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

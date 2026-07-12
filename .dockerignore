@@ -1,0 +1,7 @@
+.git
+README.md
+docker-compose.yml
+node_modules
+.env
+data
+uploads

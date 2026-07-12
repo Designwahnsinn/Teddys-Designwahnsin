@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Designs verwalten – Teddys Designwahnsinn</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .admin-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .admin-header h1 { color: var(--accent); font-size: 1.6rem; }
+    .logout-form button {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.4rem 1rem;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .logout-form button:hover { border-color: var(--accent); color: var(--accent); }
+
+    .upload-form {
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.5rem;
+      margin-bottom: 2.5rem;
+      display: grid;
+      gap: 0.9rem;
+      max-width: 480px;
+    }
+    .upload-form label { font-weight: 600; font-size: 0.9rem; }
+    .upload-form input[type="text"],
+    .upload-form textarea {
+      width: 100%;
+      padding: 0.6rem 0.8rem;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 1rem;
+    }
+    .upload-form button[type="submit"] {
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      padding: 0.7rem 1rem;
+      cursor: pointer;
+    }
+    #form-message { font-size: 0.9rem; }
+    #form-message.error { color: #c0392b; }
+    #form-message.success { color: #2d7a4f; }
+
+    .admin-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.5rem;
+    }
+    .admin-card {
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .admin-card img { width: 100%; height: 140px; object-fit: cover; display: block; }
+    .admin-card-body { padding: 1rem; }
+    .admin-card h3 { font-size: 1rem; margin-bottom: 0.3rem; }
+    .admin-card p { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.75rem; }
+    .delete-btn {
+      border: none;
+      background: #c0392b;
+      color: #fff;
+      border-radius: 8px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .delete-btn:hover { opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="admin-header">
+      <h1>Designs verwalten</h1>
+      <form class="logout-form" action="/mitarbeiter/logout" method="POST">
+        <button type="submit">Abmelden</button>
+      </form>
+    </div>
+
+    <form class="upload-form" id="upload-form">
+      <div>
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" required>
+      </div>
+      <div>
+        <label for="description">Beschreibung</label>
+        <textarea id="description" name="description" rows="2"></textarea>
+      </div>
+      <div>
+        <label for="image">Bild (PNG, JPG, WEBP)</label>
+        <input type="file" id="image" name="image" accept="image/png,image/jpeg,image/webp" required>
+      </div>
+      <button type="submit">Design hochladen</button>
+      <p id="form-message"></p>
+    </form>
+
+    <div class="admin-cards" id="admin-cards"></div>
+  </main>
+
+  <script src="/admin.js"></script>
+</body>
+</html>

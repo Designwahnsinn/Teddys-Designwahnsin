@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mitarbeiter-Login – Teddys Designwahnsinn</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .login-wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .login-box {
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 4px 14px rgba(74, 59, 50, 0.08);
+      text-align: center;
+    }
+    .login-box h1 { font-size: 1.4rem; margin-bottom: 1.5rem; color: var(--accent); }
+    .login-box input[type="password"] {
+      width: 100%;
+      padding: 0.7rem 1rem;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+    }
+    .login-box input[type="password"]:focus { outline: none; border-color: var(--accent); }
+    .login-box button {
+      width: 100%;
+      padding: 0.7rem 1rem;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    .login-box button:hover { opacity: 0.92; }
+    .login-error { color: #c0392b; font-size: 0.9rem; margin-bottom: 1rem; }
+    .back-link { display: inline-block; margin-top: 1.25rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-box">
+      <h1>Mitarbeiter-Login</h1>
+      <p class="login-error" id="login-error" hidden>Falsches Passwort.</p>
+      <form action="/mitarbeiter/login" method="POST">
+        <input type="password" name="password" placeholder="Passwort" required autofocus>
+        <button type="submit">Anmelden</button>
+      </form>
+      <a class="back-link" href="/">← Zurück zur Website</a>
+    </div>
+  </div>
+  <script>
+    if (new URLSearchParams(location.search).has("error")) {
+      document.getElementById("login-error").hidden = false;
+    }
+  </script>
+</body>
+</html>
