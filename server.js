@@ -9,8 +9,19 @@ const db = require("./db");
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "teddy2026";
 const SESSION_SECRET = process.env.SESSION_SECRET || "change-me-in-production";
+const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || "";
 
 const UPLOADS_DIR = path.join(__dirname, "uploads");
+
+const CATEGORIES = [
+  "Tiere",
+  "Blumen / Natur",
+  "Muster / Abstrakt",
+  "Kindermotive",
+  "Saisonal",
+];
+
+const STATUS_VALUES = ["verfügbar", "exklusiv", "verkauft"];
 
 const app = express();
 app.set("trust proxy", 1);
@@ -39,8 +50,8 @@ const upload = multer({
   storage,
   limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const ok = ["image/png", "image/jpeg", "image/webp"].includes(file.mimetype);
-    cb(ok ? null : new Error("Nur PNG, JPG oder WEBP erlaubt"), ok);
+    const ok = ["image/png", "image/jpeg", "image/webp", "image/avif"].includes(file.mimetype);
+    cb(ok ? null : new Error("Nur PNG, JPG, WEBP oder AVIF erlaubt"), ok);
   },
 });
 
@@ -51,7 +62,12 @@ function requireAuth(req, res, next) {
 
 // --- Public API ---
 app.get("/api/designs", (req, res) => {
-  res.json(db.getDesigns());
+  // Verkaufte Designs erscheinen nicht auf der öffentlichen Seite
+  res.json(db.getDesigns().filter((d) => d.status !== "verkauft"));
+});
+
+app.get("/api/config", (req, res) => {
+  res.json({ categories: CATEGORIES, whatsappNumber: WHATSAPP_NUMBER });
 });
 
 // --- Login ---
@@ -82,18 +98,38 @@ app.get("/api/admin/designs", requireAuth, (req, res) => {
 });
 
 app.post("/api/admin/designs", requireAuth, upload.single("image"), (req, res) => {
-  const { name, description } = req.body;
-  if (!name || !req.file) {
-    return res.status(400).json({ error: "Name und Bild sind Pflichtfelder" });
+  const { name, description, category, price, status, kaufLink } = req.body;
+  if (!name || !category || !req.file) {
+    return res.status(400).json({ error: "Name, Kategorie und Bild sind Pflichtfelder" });
+  }
+  if (!CATEGORIES.includes(category)) {
+    return res.status(400).json({ error: "Ungültige Kategorie" });
+  }
+  if (status && !STATUS_VALUES.includes(status)) {
+    return res.status(400).json({ error: "Ungültiger Status" });
   }
   const design = db.addDesign({
-    id: crypto.randomUUID(),
+    id: db.nextId(),
     name,
     description: description || "",
+    category,
+    price: price ? Number(price) : null,
+    status: status || "verfügbar",
+    kaufLink: kaufLink || "",
     image: `/uploads/${req.file.filename}`,
     createdAt: new Date().toISOString(),
   });
   res.status(201).json(design);
+});
+
+app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
+  const { status } = req.body;
+  if (!STATUS_VALUES.includes(status)) {
+    return res.status(400).json({ error: "Ungültiger Status" });
+  }
+  const updated = db.updateDesign(req.params.id, { status });
+  if (!updated) return res.status(404).json({ error: "Nicht gefunden" });
+  res.json(updated);
 });
 
 app.delete("/api/admin/designs/:id", requireAuth, (req, res) => {

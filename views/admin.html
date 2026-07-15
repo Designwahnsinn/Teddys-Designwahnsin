@@ -38,6 +38,9 @@
     }
     .upload-form label { font-weight: 600; font-size: 0.9rem; }
     .upload-form input[type="text"],
+    .upload-form input[type="number"],
+    .upload-form input[type="url"],
+    .upload-form select,
     .upload-form textarea {
       width: 100%;
       padding: 0.6rem 0.8rem;
@@ -45,6 +48,7 @@
       border-radius: 10px;
       font-family: inherit;
       font-size: 1rem;
+      background: #fff;
     }
     .upload-form button[type="submit"] {
       border: none;
@@ -72,8 +76,24 @@
     }
     .admin-card img { width: 100%; height: 140px; object-fit: cover; display: block; }
     .admin-card-body { padding: 1rem; }
+    .admin-card .design-id { color: var(--muted); font-size: 0.75rem; }
+    .admin-card .category { color: var(--accent); font-size: 0.8rem; font-weight: 600; }
     .admin-card h3 { font-size: 1rem; margin-bottom: 0.3rem; }
-    .admin-card p { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.75rem; }
+    .admin-card p { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.5rem; }
+    .admin-card .card-actions {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 0.5rem;
+    }
+    .status-select {
+      padding: 0.3rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.85rem;
+      background: #fff;
+    }
     .delete-btn {
       border: none;
       background: #c0392b;
@@ -101,12 +121,32 @@
         <input type="text" id="name" name="name" required>
       </div>
       <div>
+        <label for="category">Kategorie</label>
+        <select id="category" name="category" required></select>
+      </div>
+      <div>
         <label for="description">Beschreibung</label>
         <textarea id="description" name="description" rows="2"></textarea>
       </div>
       <div>
-        <label for="image">Bild (PNG, JPG, WEBP)</label>
-        <input type="file" id="image" name="image" accept="image/png,image/jpeg,image/webp" required>
+        <label for="price">Preis (€)</label>
+        <input type="number" id="price" name="price" step="0.01" min="0">
+      </div>
+      <div>
+        <label for="status">Status</label>
+        <select id="status" name="status">
+          <option value="verfügbar">verfügbar</option>
+          <option value="exklusiv">exklusiv</option>
+          <option value="verkauft">verkauft</option>
+        </select>
+      </div>
+      <div>
+        <label for="kaufLink">Kauf-Link (optional, z.B. Gumroad)</label>
+        <input type="url" id="kaufLink" name="kaufLink" placeholder="https://…">
+      </div>
+      <div>
+        <label for="image">Bild (PNG, JPG, WEBP, AVIF)</label>
+        <input type="file" id="image" name="image" accept="image/png,image/jpeg,image/webp,image/avif" required>
       </div>
       <button type="submit">Design hochladen</button>
       <p id="form-message"></p>
