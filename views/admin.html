@@ -104,6 +104,48 @@
       cursor: pointer;
     }
     .delete-btn:hover { opacity: 0.9; }
+
+    .edit-btn, .cancel-btn {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .edit-btn:hover, .cancel-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    .save-btn {
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 8px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .save-btn:hover { opacity: 0.9; }
+
+    .admin-card-body label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-top: 0.5rem;
+    }
+    .admin-card-body input,
+    .admin-card-body select,
+    .admin-card-body textarea {
+      width: 100%;
+      padding: 0.4rem 0.6rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.9rem;
+      background: #fff;
+    }
+    .edit-error { color: #c0392b; font-size: 0.85rem; }
   </style>
 </head>
 <body>

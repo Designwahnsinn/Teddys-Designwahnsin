@@ -123,11 +123,30 @@ app.post("/api/admin/designs", requireAuth, upload.single("image"), (req, res) =
 });
 
 app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
-  const { status } = req.body;
-  if (!STATUS_VALUES.includes(status)) {
-    return res.status(400).json({ error: "Ungültiger Status" });
+  const { name, description, category, price, status, kaufLink } = req.body;
+
+  const changes = {};
+  if (name !== undefined) {
+    if (!name) return res.status(400).json({ error: "Name darf nicht leer sein" });
+    changes.name = name;
   }
-  const updated = db.updateDesign(req.params.id, { status });
+  if (description !== undefined) changes.description = description;
+  if (category !== undefined) {
+    if (!CATEGORIES.includes(category)) {
+      return res.status(400).json({ error: "Ungültige Kategorie" });
+    }
+    changes.category = category;
+  }
+  if (price !== undefined) changes.price = price === "" || price === null ? null : Number(price);
+  if (status !== undefined) {
+    if (!STATUS_VALUES.includes(status)) {
+      return res.status(400).json({ error: "Ungültiger Status" });
+    }
+    changes.status = status;
+  }
+  if (kaufLink !== undefined) changes.kaufLink = kaufLink;
+
+  const updated = db.updateDesign(req.params.id, changes);
   if (!updated) return res.status(404).json({ error: "Nicht gefunden" });
   res.json(updated);
 });
