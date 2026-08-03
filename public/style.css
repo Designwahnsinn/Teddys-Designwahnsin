@@ -1,13 +1,13 @@
 :root {
-  --bg: #fff8ee;
+  --bg: #f5faf1;
   --bg-alt: #ffffff;
-  --text: #4a3b32;
-  --muted: #8a7a6d;
-  --accent: #ff6f3c;
+  --text: #24321f;
+  --muted: #6e7f68;
+  --accent: #2fae4a;
   --accent-2: #ffb84c;
-  --accent-3: #4fb0a5;
-  --border: #f3e2c8;
-  --nav-bg: #ff6f3c;
+  --accent-3: #d8412f;
+  --border: #dcedd4;
+  --nav-bg: #2fae4a;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -72,8 +72,8 @@ body {
 .hero {
   padding: 4.5rem 1.5rem;
   text-align: center;
-  background: linear-gradient(135deg, #ffd07a 0%, #ff9d6c 40%, #4fb0a5 100%);
-  color: #3a2a20;
+  background: linear-gradient(135deg, #8fe06a 0%, #3cc24a 45%, #1f9e3c 100%);
+  color: #fff;
 }
 
 .hero-inner { max-width: 700px; margin: 0 auto; }
@@ -96,7 +96,7 @@ body {
   white-space: nowrap;
 }
 
-.subtitle { color: #4a3428; font-size: 1.15rem; font-weight: 500; }
+.subtitle { color: rgba(255, 255, 255, 0.94); font-size: 1.15rem; font-weight: 600; }
 
 main {
   max-width: 1000px;
