@@ -13,14 +13,6 @@ const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || "";
 
 const UPLOADS_DIR = path.join(__dirname, "uploads");
 
-const CATEGORIES = [
-  "Tiere",
-  "Blumen / Natur",
-  "Muster / Abstrakt",
-  "Kindermotive",
-  "Saisonal",
-];
-
 const STATUS_VALUES = ["verfügbar", "exklusiv", "verkauft"];
 
 const app = express();
@@ -67,7 +59,7 @@ app.get("/api/designs", (req, res) => {
 });
 
 app.get("/api/config", (req, res) => {
-  res.json({ categories: CATEGORIES, whatsappNumber: WHATSAPP_NUMBER });
+  res.json({ categories: db.getCategories(), whatsappNumber: WHATSAPP_NUMBER });
 });
 
 // --- Login ---
@@ -102,7 +94,7 @@ app.post("/api/admin/designs", requireAuth, upload.single("image"), (req, res) =
   if (!name || !category || !req.file) {
     return res.status(400).json({ error: "Name, Kategorie und Bild sind Pflichtfelder" });
   }
-  if (!CATEGORIES.includes(category)) {
+  if (!db.getCategories().includes(category)) {
     return res.status(400).json({ error: "Ungültige Kategorie" });
   }
   if (status && !STATUS_VALUES.includes(status)) {
@@ -132,7 +124,7 @@ app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
   }
   if (description !== undefined) changes.description = description;
   if (category !== undefined) {
-    if (!CATEGORIES.includes(category)) {
+    if (!db.getCategories().includes(category)) {
       return res.status(400).json({ error: "Ungültige Kategorie" });
     }
     changes.category = category;
@@ -159,6 +151,44 @@ app.delete("/api/admin/designs/:id", requireAuth, (req, res) => {
   fs.unlink(filePath, () => {});
 
   res.json({ ok: true });
+});
+
+// --- Kategorien-Verwaltung ---
+app.post("/api/admin/categories", requireAuth, (req, res) => {
+  const name = (req.body.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Name darf nicht leer sein" });
+  if (db.getCategories().includes(name)) {
+    return res.status(400).json({ error: "Kategorie existiert bereits" });
+  }
+  res.status(201).json(db.addCategory(name));
+});
+
+app.patch("/api/admin/categories", requireAuth, (req, res) => {
+  const oldName = (req.body.oldName || "").trim();
+  const newName = (req.body.newName || "").trim();
+  if (!oldName || !newName) {
+    return res.status(400).json({ error: "Alter und neuer Name sind Pflichtfelder" });
+  }
+  if (oldName === newName) return res.json(db.getCategories());
+  if (db.getCategories().includes(newName)) {
+    return res.status(400).json({ error: "Eine Kategorie mit diesem Namen existiert bereits" });
+  }
+  const result = db.renameCategory(oldName, newName);
+  if (!result) return res.status(404).json({ error: "Kategorie nicht gefunden" });
+  res.json(result);
+});
+
+app.delete("/api/admin/categories/:name", requireAuth, (req, res) => {
+  const name = req.params.name;
+  const inUse = db.getDesigns().some((d) => d.category === name);
+  if (inUse) {
+    return res.status(400).json({
+      error: "Kategorie wird noch von Designs verwendet – erst Designs umkategorisieren",
+    });
+  }
+  const result = db.deleteCategory(name);
+  if (!result) return res.status(404).json({ error: "Kategorie nicht gefunden" });
+  res.json(result);
 });
 
 app.listen(PORT, () => {

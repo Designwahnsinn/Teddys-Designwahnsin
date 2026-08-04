@@ -3,10 +3,22 @@ const path = require("path");
 
 const DATA_DIR = path.join(__dirname, "data");
 const DB_FILE = path.join(DATA_DIR, "designs.json");
+const CATEGORIES_FILE = path.join(DATA_DIR, "categories.json");
+
+const DEFAULT_CATEGORIES = [
+  "Tiere",
+  "Blumen / Natur",
+  "Muster / Abstrakt",
+  "Kindermotive",
+  "Saisonal",
+];
 
 function ensureStore() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, "[]");
+  if (!fs.existsSync(CATEGORIES_FILE)) {
+    fs.writeFileSync(CATEGORIES_FILE, JSON.stringify(DEFAULT_CATEGORIES, null, 2));
+  }
 }
 
 function getDesigns() {
@@ -52,4 +64,59 @@ function deleteDesign(id) {
   return target;
 }
 
-module.exports = { getDesigns, nextId, addDesign, updateDesign, deleteDesign };
+function getCategories() {
+  ensureStore();
+  return JSON.parse(fs.readFileSync(CATEGORIES_FILE, "utf-8"));
+}
+
+function saveCategories(categories) {
+  ensureStore();
+  fs.writeFileSync(CATEGORIES_FILE, JSON.stringify(categories, null, 2));
+}
+
+function addCategory(name) {
+  const categories = getCategories();
+  categories.push(name);
+  saveCategories(categories);
+  return categories;
+}
+
+// Umbenennen zieht alle Designs der Kategorie mit um
+function renameCategory(oldName, newName) {
+  const categories = getCategories();
+  const index = categories.indexOf(oldName);
+  if (index === -1) return null;
+  categories[index] = newName;
+  saveCategories(categories);
+
+  const designs = getDesigns();
+  let changed = false;
+  designs.forEach((d) => {
+    if (d.category === oldName) {
+      d.category = newName;
+      changed = true;
+    }
+  });
+  if (changed) saveDesigns(designs);
+
+  return categories;
+}
+
+function deleteCategory(name) {
+  const categories = getCategories();
+  if (!categories.includes(name)) return null;
+  saveCategories(categories.filter((c) => c !== name));
+  return getCategories();
+}
+
+module.exports = {
+  getDesigns,
+  nextId,
+  addDesign,
+  updateDesign,
+  deleteDesign,
+  getCategories,
+  addCategory,
+  renameCategory,
+  deleteCategory,
+};
