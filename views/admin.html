@@ -3,242 +3,36 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Designs verwalten – Teddys Designwahnsinn</title>
+  <title>Mitarbeiter-Bereich – Teddys Designwahnsinn</title>
   <link rel="stylesheet" href="/style.css">
-  <style>
-    .admin-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 1rem;
-      margin-bottom: 2rem;
-    }
-    .admin-header h1 { color: var(--accent); font-size: 1.6rem; }
-    .logout-form button {
-      background: none;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 0.4rem 1rem;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 0.9rem;
-    }
-    .logout-form button:hover { border-color: var(--accent); color: var(--accent); }
-
-    .upload-form {
-      background: var(--bg-alt);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 1.5rem;
-      margin-bottom: 2.5rem;
-      display: grid;
-      gap: 0.9rem;
-      max-width: 480px;
-    }
-    .upload-form label { font-weight: 600; font-size: 0.9rem; }
-    .upload-form input[type="text"],
-    .upload-form input[type="number"],
-    .upload-form input[type="url"],
-    .upload-form select,
-    .upload-form textarea {
-      width: 100%;
-      padding: 0.6rem 0.8rem;
-      border: 2px solid var(--border);
-      border-radius: 10px;
-      font-family: inherit;
-      font-size: 1rem;
-      background: #fff;
-    }
-    .upload-form button[type="submit"] {
-      border: none;
-      border-radius: 10px;
-      background: var(--accent);
-      color: #fff;
-      font-weight: 600;
-      padding: 0.7rem 1rem;
-      cursor: pointer;
-    }
-    #form-message { font-size: 0.9rem; }
-    #form-message.error { color: #c0392b; }
-    #form-message.success { color: #2d7a4f; }
-
-    .admin-cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1.5rem;
-    }
-    .admin-card {
-      background: var(--bg-alt);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      overflow: hidden;
-    }
-    .admin-card img { width: 100%; height: 140px; object-fit: cover; display: block; }
-    .admin-card-body { padding: 1rem; }
-    .admin-card .design-id { color: var(--muted); font-size: 0.75rem; }
-    .admin-card .category { color: var(--accent); font-size: 0.8rem; font-weight: 600; }
-    .admin-card h3 { font-size: 1rem; margin-bottom: 0.3rem; }
-    .admin-card p { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.5rem; }
-    .admin-card .card-actions {
-      display: flex;
-      gap: 0.5rem;
-      align-items: center;
-      flex-wrap: wrap;
-      margin-top: 0.5rem;
-    }
-    .status-select {
-      padding: 0.3rem 0.5rem;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      font-size: 0.85rem;
-      background: #fff;
-    }
-    .delete-btn {
-      border: none;
-      background: #c0392b;
-      color: #fff;
-      border-radius: 8px;
-      padding: 0.4rem 0.8rem;
-      font-size: 0.85rem;
-      cursor: pointer;
-    }
-    .delete-btn:hover { opacity: 0.9; }
-
-    .edit-btn, .cancel-btn {
-      border: 1px solid var(--border);
-      background: #fff;
-      color: var(--text);
-      border-radius: 8px;
-      padding: 0.4rem 0.8rem;
-      font-size: 0.85rem;
-      cursor: pointer;
-    }
-    .edit-btn:hover, .cancel-btn:hover { border-color: var(--accent); color: var(--accent); }
-
-    .save-btn {
-      border: none;
-      background: var(--accent);
-      color: #fff;
-      border-radius: 8px;
-      padding: 0.4rem 0.8rem;
-      font-size: 0.85rem;
-      cursor: pointer;
-    }
-    .save-btn:hover { opacity: 0.9; }
-
-    .admin-card-body label {
-      display: block;
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--muted);
-      margin-top: 0.5rem;
-    }
-    .admin-card-body input,
-    .admin-card-body select,
-    .admin-card-body textarea {
-      width: 100%;
-      padding: 0.4rem 0.6rem;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      font-family: inherit;
-      font-size: 0.9rem;
-      background: #fff;
-    }
-    .edit-error { color: #c0392b; font-size: 0.85rem; }
-
-    .category-manager {
-      background: var(--bg-alt);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 1.25rem 1.5rem;
-      margin-bottom: 2.5rem;
-      max-width: 480px;
-    }
-    .category-manager summary {
-      font-weight: 700;
-      color: var(--accent);
-      cursor: pointer;
-    }
-    .category-list { display: grid; gap: 0.5rem; margin-top: 1rem; }
-    .category-row {
-      display: flex;
-      gap: 0.5rem;
-      align-items: center;
-    }
-    .category-row input { flex: 1; }
-    .category-add {
-      display: flex;
-      gap: 0.5rem;
-      margin-top: 1rem;
-      padding-top: 1rem;
-      border-top: 1px solid var(--border);
-    }
-    .category-add input { flex: 1; }
-    #category-message { font-size: 0.85rem; margin-top: 0.5rem; }
-    #category-message.error { color: #c0392b; }
-    #category-message.success { color: #2d7a4f; }
-  </style>
+  <link rel="stylesheet" href="/admin.css">
 </head>
 <body>
   <main>
     <div class="admin-header">
-      <h1>Designs verwalten</h1>
+      <h1>Mitarbeiter-Bereich</h1>
       <form class="logout-form" action="/mitarbeiter/logout" method="POST">
         <button type="submit">Abmelden</button>
       </form>
     </div>
 
-    <form class="upload-form" id="upload-form">
-      <div>
-        <label for="name">Name</label>
-        <input type="text" id="name" name="name" required>
-      </div>
-      <div>
-        <label for="category">Kategorie</label>
-        <select id="category" name="category" required></select>
-      </div>
-      <div>
-        <label for="description">Beschreibung</label>
-        <textarea id="description" name="description" rows="2"></textarea>
-      </div>
-      <div>
-        <label for="price">Preis (€)</label>
-        <input type="number" id="price" name="price" step="0.01" min="0">
-      </div>
-      <div>
-        <label for="status">Status</label>
-        <select id="status" name="status">
-          <option value="verfügbar">verfügbar</option>
-          <option value="exklusiv">exklusiv</option>
-          <option value="verkauft">verkauft</option>
-        </select>
-      </div>
-      <div>
-        <label for="kaufLink">Kauf-Link (optional, z.B. Gumroad)</label>
-        <input type="url" id="kaufLink" name="kaufLink" placeholder="https://…">
-      </div>
-      <div>
-        <label for="image">Bild (PNG, JPG, WEBP, AVIF)</label>
-        <input type="file" id="image" name="image" accept="image/png,image/jpeg,image/webp,image/avif" required>
-      </div>
-      <button type="submit">Design hochladen</button>
-      <p id="form-message"></p>
-    </form>
-
-    <details class="category-manager">
-      <summary>Kategorien verwalten</summary>
-      <div class="category-list" id="category-list"></div>
-      <div class="category-add">
-        <input type="text" id="new-category-name" placeholder="Neue Kategorie…">
-        <button type="button" id="add-category-btn" class="save-btn">Hinzufügen</button>
-      </div>
-      <p id="category-message"></p>
-    </details>
-
-    <div class="admin-cards" id="admin-cards"></div>
+    <div class="dashboard-grid">
+      <a class="dashboard-card" href="/mitarbeiter/neu">
+        <span class="icon">🆕</span>
+        <h2>Design hochladen</h2>
+        <p>Neues Design mit Bild, Kategorie und Preis anlegen</p>
+      </a>
+      <a class="dashboard-card" href="/mitarbeiter/designs">
+        <span class="icon">🖼️</span>
+        <h2>Designs verwalten</h2>
+        <p>Bestehende Designs bearbeiten, Status ändern, löschen</p>
+      </a>
+      <a class="dashboard-card" href="/mitarbeiter/kategorien">
+        <span class="icon">🏷️</span>
+        <h2>Kategorien verwalten</h2>
+        <p>Kategorien anlegen, umbenennen oder löschen</p>
+      </a>
+    </div>
   </main>
-
-  <script src="/admin.js"></script>
 </body>
 </html>

@@ -53,9 +53,15 @@ function requireAuth(req, res, next) {
 }
 
 // --- Public API ---
+function toPublicDesign(d) {
+  // driveLink ist nur für den internen Mitarbeiter-Bereich gedacht
+  const { driveLink, ...publicDesign } = d;
+  return publicDesign;
+}
+
 app.get("/api/designs", (req, res) => {
   // Verkaufte Designs erscheinen nicht auf der öffentlichen Seite
-  res.json(db.getDesigns().filter((d) => d.status !== "verkauft"));
+  res.json(db.getDesigns().filter((d) => d.status !== "verkauft").map(toPublicDesign));
 });
 
 app.get("/api/config", (req, res) => {
@@ -85,12 +91,24 @@ app.get("/mitarbeiter/upload", requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, "views", "admin.html"));
 });
 
+app.get("/mitarbeiter/neu", requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, "views", "admin-neu.html"));
+});
+
+app.get("/mitarbeiter/designs", requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, "views", "admin-designs.html"));
+});
+
+app.get("/mitarbeiter/kategorien", requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, "views", "admin-kategorien.html"));
+});
+
 app.get("/api/admin/designs", requireAuth, (req, res) => {
   res.json(db.getDesigns());
 });
 
 app.post("/api/admin/designs", requireAuth, upload.single("image"), (req, res) => {
-  const { name, description, category, price, status, kaufLink } = req.body;
+  const { name, description, category, price, status, kaufLink, driveLink } = req.body;
   if (!name || !category || !req.file) {
     return res.status(400).json({ error: "Name, Kategorie und Bild sind Pflichtfelder" });
   }
@@ -108,6 +126,7 @@ app.post("/api/admin/designs", requireAuth, upload.single("image"), (req, res) =
     price: price ? Number(price) : null,
     status: status || "verfügbar",
     kaufLink: kaufLink || "",
+    driveLink: driveLink || "",
     image: `/uploads/${req.file.filename}`,
     createdAt: new Date().toISOString(),
   });
@@ -115,7 +134,7 @@ app.post("/api/admin/designs", requireAuth, upload.single("image"), (req, res) =
 });
 
 app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
-  const { name, description, category, price, status, kaufLink } = req.body;
+  const { name, description, category, price, status, kaufLink, driveLink } = req.body;
 
   const changes = {};
   if (name !== undefined) {
@@ -137,6 +156,7 @@ app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
     changes.status = status;
   }
   if (kaufLink !== undefined) changes.kaufLink = kaufLink;
+  if (driveLink !== undefined) changes.driveLink = driveLink;
 
   const updated = db.updateDesign(req.params.id, changes);
   if (!updated) return res.status(404).json({ error: "Nicht gefunden" });
