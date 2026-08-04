@@ -68,6 +68,12 @@ body {
 
 .nav-links a:hover { opacity: 1; text-decoration: underline; }
 
+.nav-links a.active {
+  opacity: 1;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
 /* Hero */
 .hero {
   padding: 4.5rem 1.5rem;
@@ -95,6 +101,45 @@ body {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
 }
+
+.hero-cta {
+  display: inline-block;
+  margin-top: 1.25rem;
+  background: #fff;
+  color: var(--accent);
+  font-weight: 700;
+  padding: 0.75rem 1.75rem;
+  border-radius: 999px;
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  transition: transform 0.12s ease;
+}
+
+.hero-cta:hover { transform: scale(1.05) rotate(-1deg); }
+
+.teaser-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+}
+
+.teaser-card {
+  display: block;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.5rem;
+  text-decoration: none;
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(36, 50, 31, 0.06);
+  transition: transform 0.15s ease;
+}
+
+.teaser-card:hover { transform: translateY(-3px) rotate(-0.5deg); }
+
+.teaser-card h3 { margin-bottom: 0.3rem; color: var(--accent); }
+.teaser-card p { color: var(--muted); font-size: 0.95rem; }
 
 .subtitle { color: rgba(255, 255, 255, 0.94); font-size: 1.15rem; font-weight: 600; }
 

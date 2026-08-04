@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Designs – Teddys Designwahnsinn</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-inner">
+      <span class="brand"><img src="images/teddy-icon.png" alt="" class="nav-icon">Teddys Designwahnsinn</span>
+      <div class="nav-links">
+        <a href="/">Start</a>
+        <a href="/ueber-uns.html">Über uns</a>
+        <a href="/designs.html" class="active">Designs</a>
+        <a href="/kontakt.html">Kontakt</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero hero-small">
+    <div class="hero-inner">
+      <h1>Designs</h1>
+    </div>
+  </header>
+
+  <main>
+    <section id="gallery">
+      <div class="gallery-controls">
+        <div class="category-filters" id="category-filters"></div>
+        <div class="search-bar">
+          <input type="search" id="design-search" placeholder="Design suchen…" aria-label="Designs durchsuchen">
+        </div>
+      </div>
+
+      <div class="masonry" id="design-cards"></div>
+      <p class="hint" id="no-results" hidden>Keine Designs gefunden.</p>
+      <p class="hint" id="empty-state" hidden>Noch keine Designs hochgeladen.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Teddys Designwahnsinn</p>
+    <p>
+      <a class="footer-link" href="/impressum.html">Impressum</a> ·
+      <a class="footer-link" href="/datenschutz.html">Datenschutz</a> ·
+      <a class="footer-link" href="/mitarbeiter">Mitarbeiter-Login</a>
+    </p>
+  </footer>
+
+  <div class="lightbox" id="lightbox" hidden>
+    <div class="lightbox-backdrop" id="lightbox-backdrop"></div>
+    <div class="lightbox-content" role="dialog" aria-modal="true">
+      <button class="lightbox-close" id="lightbox-close" aria-label="Schließen">×</button>
+      <img id="lightbox-image" alt="">
+      <div class="lightbox-info">
+        <span class="lightbox-badge" id="lightbox-badge" hidden></span>
+        <span class="lightbox-id" id="lightbox-id"></span>
+        <h3 id="lightbox-name"></h3>
+        <p id="lightbox-description"></p>
+        <p class="lightbox-price" id="lightbox-price"></p>
+        <div class="lightbox-actions">
+          <a class="btn btn-whatsapp" id="lightbox-whatsapp" target="_blank" rel="noopener" hidden>Per WhatsApp anfragen</a>
+          <a class="btn btn-buy" id="lightbox-buy" target="_blank" rel="noopener" hidden>Jetzt kaufen</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
