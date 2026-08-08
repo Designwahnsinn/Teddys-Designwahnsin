@@ -41,6 +41,7 @@ db.exec(`
     status TEXT NOT NULL,
     kaufLink TEXT,
     driveLink TEXT,
+    instagramLink TEXT,
     image TEXT NOT NULL,
     verkaufszaehler INTEGER NOT NULL DEFAULT 0,
     createdAt TEXT NOT NULL
@@ -75,6 +76,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 `);
 
+// Für bereits existierende Datenbanken: CREATE TABLE IF NOT EXISTS legt keine
+// fehlenden Spalten nach, also hier defensiv nachziehen.
+function ensureColumn(table, column, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!columns.includes(column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+ensureColumn("designs", "instagramLink", "TEXT");
+
 migrateFromLegacyJson();
 
 function migrateFromLegacyJson() {
@@ -82,8 +93,8 @@ function migrateFromLegacyJson() {
   if (designCount === 0 && fs.existsSync(LEGACY_DESIGNS_FILE)) {
     const legacyDesigns = JSON.parse(fs.readFileSync(LEGACY_DESIGNS_FILE, "utf-8"));
     const insert = db.prepare(`
-      INSERT INTO designs (id, name, description, category, price, status, kaufLink, driveLink, image, verkaufszaehler, createdAt)
-      VALUES (@id, @name, @description, @category, @price, @status, @kaufLink, @driveLink, @image, @verkaufszaehler, @createdAt)
+      INSERT INTO designs (id, name, description, category, price, status, kaufLink, driveLink, instagramLink, image, verkaufszaehler, createdAt)
+      VALUES (@id, @name, @description, @category, @price, @status, @kaufLink, @driveLink, @instagramLink, @image, @verkaufszaehler, @createdAt)
     `);
     const insertMany = db.transaction((rows) => {
       for (const d of rows) {
@@ -96,6 +107,7 @@ function migrateFromLegacyJson() {
           status: d.status,
           kaufLink: d.kaufLink || "",
           driveLink: d.driveLink || "",
+          instagramLink: d.instagramLink || "",
           image: d.image,
           verkaufszaehler: 0,
           createdAt: d.createdAt || new Date().toISOString(),
@@ -136,8 +148,8 @@ function nextId() {
 
 function addDesign(design) {
   db.prepare(`
-    INSERT INTO designs (id, name, description, category, price, status, kaufLink, driveLink, image, verkaufszaehler, createdAt)
-    VALUES (@id, @name, @description, @category, @price, @status, @kaufLink, @driveLink, @image, 0, @createdAt)
+    INSERT INTO designs (id, name, description, category, price, status, kaufLink, driveLink, instagramLink, image, verkaufszaehler, createdAt)
+    VALUES (@id, @name, @description, @category, @price, @status, @kaufLink, @driveLink, @instagramLink, @image, 0, @createdAt)
   `).run({
     id: design.id,
     name: design.name,
@@ -147,13 +159,14 @@ function addDesign(design) {
     status: design.status,
     kaufLink: design.kaufLink || "",
     driveLink: design.driveLink || "",
+    instagramLink: design.instagramLink || "",
     image: design.image,
     createdAt: design.createdAt,
   });
   return db.prepare("SELECT * FROM designs WHERE id = ?").get(design.id);
 }
 
-const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "status", "kaufLink", "driveLink"];
+const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "status", "kaufLink", "driveLink", "instagramLink"];
 
 function updateDesign(id, changes) {
   const existing = db.prepare("SELECT * FROM designs WHERE id = ?").get(id);
@@ -243,6 +256,37 @@ function listOrders(status) {
   return orders.map((order) => ({ ...order, designs: designCountStmt.all(order.id) }));
 }
 
+const ORDER_STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt"];
+const ORDER_UPDATE_FIELDS = ["kunde_name", "kunde_email", "status", "notiz", ...ORDER_STEPS];
+
+// Freie Bearbeitung: im Gegensatz zu advanceOrderStep() keine Reihenfolge-Pflicht,
+// Schritte lassen sich einzeln an-/abhaken, auch bei bereits abgeschlossenen Bestellungen.
+// Der Verkaufszähler der Designs wird hier bewusst NICHT automatisch angepasst.
+function updateOrder(id, changes) {
+  const existing = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+  if (!existing) return null;
+
+  const sanitized = {};
+  for (const key of Object.keys(changes)) {
+    if (!ORDER_UPDATE_FIELDS.includes(key)) continue;
+    sanitized[key] = ORDER_STEPS.includes(key) ? (changes[key] ? 1 : 0) : changes[key];
+  }
+
+  const fields = Object.keys(sanitized);
+  if (fields.length > 0) {
+    const setClause = fields.map((f) => `${f} = @${f}`).join(", ");
+    db.prepare(`UPDATE orders SET ${setClause} WHERE id = @id`).run({ ...sanitized, id });
+  }
+  return getOrder(id);
+}
+
+function deleteOrder(id) {
+  const existing = getOrder(id);
+  if (!existing) return null;
+  db.prepare("DELETE FROM orders WHERE id = ?").run(id);
+  return existing;
+}
+
 // Setzt den angegebenen Wizard-Schritt (Schritte 3-7), lehnt ab wenn der
 // vorherige Schritt noch nicht erledigt ist oder noch keine Designs zugeordnet sind
 function advanceOrderStep(orderId, stepName) {
@@ -296,10 +340,13 @@ module.exports = {
   renameCategory,
   deleteCategory,
   ORDER_STEPS,
+  ORDER_STATUS_VALUES,
   createOrder,
   setOrderDesigns,
   getOrder,
   listOrders,
   advanceOrderStep,
   completeOrder,
+  updateOrder,
+  deleteOrder,
 };

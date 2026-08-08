@@ -13,6 +13,7 @@ const lightboxDescription = document.getElementById("lightbox-description");
 const lightboxPrice = document.getElementById("lightbox-price");
 const lightboxWhatsapp = document.getElementById("lightbox-whatsapp");
 const lightboxBuy = document.getElementById("lightbox-buy");
+const lightboxInstagram = document.getElementById("lightbox-instagram");
 
 let allDesigns = [];
 let whatsappNumber = "";
@@ -101,6 +102,13 @@ function openLightbox(design) {
     lightboxBuy.hidden = false;
   } else {
     lightboxBuy.hidden = true;
+  }
+
+  if (design.instagramLink) {
+    lightboxInstagram.href = design.instagramLink;
+    lightboxInstagram.hidden = false;
+  } else {
+    lightboxInstagram.hidden = true;
   }
 
   lightbox.hidden = false;

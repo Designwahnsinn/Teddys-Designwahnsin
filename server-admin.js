@@ -134,6 +134,10 @@ app.get("/mitarbeiter/bestellungen/neu", requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, "views", "admin-bestellung-neu.html"));
 });
 
+app.get("/mitarbeiter/bestellungen/bearbeiten", requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, "views", "admin-bestellung-bearbeiten.html"));
+});
+
 // Wird von admin-designs.js / admin-neu.js / admin-kategorien.js für die
 // Kategorien-Auswahl gebraucht (gleiche Form wie beim öffentlichen /api/config)
 app.get("/api/config", requireAuth, (req, res) => {
@@ -146,7 +150,7 @@ app.get("/api/admin/designs", requireAuth, (req, res) => {
 });
 
 app.post("/api/admin/designs", requireAuth, upload.single("image"), async (req, res) => {
-  const { name, description, category, price, status, kaufLink, driveLink } = req.body;
+  const { name, description, category, price, status, kaufLink, driveLink, instagramLink } = req.body;
   if (!name || !category || !req.file) {
     return res.status(400).json({ error: "Name, Kategorie und Bild sind Pflichtfelder" });
   }
@@ -168,6 +172,7 @@ app.post("/api/admin/designs", requireAuth, upload.single("image"), async (req, 
       status: status || "verfügbar",
       kaufLink: kaufLink || "",
       driveLink: driveLink || "",
+      instagramLink: instagramLink || "",
       image: `/uploads/${filename}`,
       createdAt: new Date().toISOString(),
     });
@@ -178,7 +183,7 @@ app.post("/api/admin/designs", requireAuth, upload.single("image"), async (req, 
 });
 
 app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
-  const { name, description, category, price, status, kaufLink, driveLink } = req.body;
+  const { name, description, category, price, status, kaufLink, driveLink, instagramLink } = req.body;
 
   const changes = {};
   if (name !== undefined) {
@@ -201,6 +206,7 @@ app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
   }
   if (kaufLink !== undefined) changes.kaufLink = kaufLink;
   if (driveLink !== undefined) changes.driveLink = driveLink;
+  if (instagramLink !== undefined) changes.instagramLink = instagramLink;
 
   const updated = db.updateDesign(req.params.id, changes);
   if (!updated) return res.status(404).json({ error: "Nicht gefunden" });
@@ -307,6 +313,42 @@ app.post("/api/admin/orders/:id/complete", requireAuth, (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Freie Bearbeitung einer bestehenden Bestellung: Kunde, Status und Schritte
+// unabhängig von der Wizard-Reihenfolge änderbar, auch bei "Erledigt".
+app.patch("/api/admin/orders/:id", requireAuth, (req, res) => {
+  const { kunde_name, kunde_email, status, notiz } = req.body;
+  const changes = {};
+
+  if (kunde_name !== undefined) {
+    if (!kunde_name.trim()) return res.status(400).json({ error: "Kundenname darf nicht leer sein" });
+    changes.kunde_name = kunde_name.trim();
+  }
+  if (kunde_email !== undefined) {
+    if (!kunde_email.trim()) return res.status(400).json({ error: "E-Mail darf nicht leer sein" });
+    changes.kunde_email = kunde_email.trim();
+  }
+  if (status !== undefined) {
+    if (!db.ORDER_STATUS_VALUES.includes(status)) {
+      return res.status(400).json({ error: "Ungültiger Status" });
+    }
+    changes.status = status;
+  }
+  if (notiz !== undefined) changes.notiz = notiz;
+  for (const step of db.ORDER_STEPS) {
+    if (req.body[step] !== undefined) changes[step] = Boolean(req.body[step]);
+  }
+
+  const updated = db.updateOrder(Number(req.params.id), changes);
+  if (!updated) return res.status(404).json({ error: "Bestellung nicht gefunden" });
+  res.json(updated);
+});
+
+app.delete("/api/admin/orders/:id", requireAuth, (req, res) => {
+  const removed = db.deleteOrder(Number(req.params.id));
+  if (!removed) return res.status(404).json({ error: "Bestellung nicht gefunden" });
+  res.json({ ok: true });
 });
 
 app.listen(PORT, () => {

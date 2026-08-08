@@ -56,6 +56,7 @@ function renderCardEdit(d, body) {
   const descInput = el("textarea", { rows: 2, value: d.description || "" });
   const priceInput = el("input", { type: "number", step: "0.01", min: "0", value: d.price != null ? d.price : "" });
   const linkInput = el("input", { type: "url", value: d.kaufLink || "", placeholder: "https://…" });
+  const instagramInput = el("input", { type: "url", value: d.instagramLink || "", placeholder: "https://instagram.com/p/…" });
   const driveInput = el("input", { type: "url", value: d.driveLink || "", placeholder: "https://drive.google.com/…" });
 
   const errorMsg = el("p", { className: "edit-error" });
@@ -71,6 +72,7 @@ function renderCardEdit(d, body) {
         description: descInput.value.trim(),
         price: priceInput.value,
         kaufLink: linkInput.value.trim(),
+        instagramLink: instagramInput.value.trim(),
         driveLink: driveInput.value.trim(),
       }),
     });
@@ -93,6 +95,7 @@ function renderCardEdit(d, body) {
     el("label", { textContent: "Beschreibung" }), descInput,
     el("label", { textContent: "Preis (€)" }), priceInput,
     el("label", { textContent: "Kauf-Link" }), linkInput,
+    el("label", { textContent: "Instagram-Link" }), instagramInput,
     el("label", { textContent: "Google-Drive-Link (intern)" }), driveInput,
     errorMsg,
     el("div", { className: "card-actions" }, [saveBtn, cancelBtn])

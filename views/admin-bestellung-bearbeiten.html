@@ -11,8 +11,8 @@
   <main>
     <div class="admin-header">
       <div>
-        <a class="admin-nav-link" href="/mitarbeiter/bestellungen">← Bestellungen (Fortschritt ist automatisch gespeichert)</a>
-        <h1 id="wizard-title">Neue Bestellung</h1>
+        <a class="admin-nav-link" href="/mitarbeiter/bestellungen">← Bestellungen</a>
+        <h1 id="edit-title">Bestellung bearbeiten</h1>
       </div>
       <div class="admin-header-actions">
         <form class="logout-form" action="/mitarbeiter/logout" method="POST">
@@ -21,11 +21,9 @@
       </div>
     </div>
 
-    <ol class="wizard-progress" id="wizard-progress"></ol>
-
-    <div class="wizard-panel" id="wizard-panel"></div>
+    <div class="wizard-panel" id="edit-panel"></div>
   </main>
 
-  <script src="/admin-bestellung-neu.js"></script>
+  <script src="/admin-bestellung-bearbeiten.js"></script>
 </body>
 </html>

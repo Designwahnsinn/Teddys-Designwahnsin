@@ -281,8 +281,29 @@
   margin-top: 0.5rem;
 }
 .wizard-panel button:hover { opacity: 0.9; }
+.wizard-panel button.delete-btn { background: #c0392b; }
 .wizard-hint { color: var(--muted); font-size: 0.9rem; }
 .wizard-error { color: #c0392b; font-size: 0.85rem; min-height: 1.2em; }
+
+.wizard-panel > label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-top: 0.9rem;
+  margin-bottom: 0.3rem;
+}
+.wizard-panel > input,
+.wizard-panel > select,
+.wizard-panel > textarea {
+  width: 100%;
+  max-width: 380px;
+  padding: 0.6rem 0.8rem;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 1rem;
+  background: #fff;
+}
 
 .wizard-form { display: grid; gap: 0.6rem; max-width: 380px; }
 .wizard-form label { font-weight: 600; font-size: 0.9rem; }

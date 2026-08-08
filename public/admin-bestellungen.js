@@ -64,12 +64,17 @@ async function loadOrders() {
     row.addEventListener("click", () => {
       window.location.href = `/mitarbeiter/bestellungen/neu?id=${order.id}`;
     });
+
+    const editLink = el("a", { className: "admin-nav-link", textContent: "✏️ Bearbeiten", href: `/mitarbeiter/bestellungen/bearbeiten?id=${order.id}` });
+    editLink.addEventListener("click", (e) => e.stopPropagation());
+
     row.append(
       el("td", {}, [el("strong", { textContent: order.kunde_name }), el("div", { className: "muted", textContent: order.kunde_email })]),
       el("td", { textContent: order.designs.map((d) => d.name).join(", ") || "–" }),
       el("td", { textContent: currentStepLabel(order) }),
       el("td", { textContent: formatDate(order.bestelldatum) }),
-      el("td", {}, [el("span", { className: `status-badge status-${order.status.replace(/\s+/g, "-").toLowerCase()}`, textContent: order.status })])
+      el("td", {}, [el("span", { className: `status-badge status-${order.status.replace(/\s+/g, "-").toLowerCase()}`, textContent: order.status })]),
+      el("td", {}, [editLink])
     );
     rowsEl.appendChild(row);
   });

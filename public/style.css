@@ -376,6 +376,11 @@ h2 {
   color: #fff;
 }
 
+.btn-instagram {
+  background: linear-gradient(135deg, #feda75, #d62976 60%, #4f5bd5);
+  color: #fff;
+}
+
 .lightbox-close {
   position: absolute;
   top: 0.75rem;
