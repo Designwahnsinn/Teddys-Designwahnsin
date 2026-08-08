@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bestellungen – Teddys Designwahnsinn</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <main>
+    <div class="admin-header">
+      <div>
+        <a class="admin-nav-link" href="/mitarbeiter/upload">← Dashboard</a>
+        <h1>Bestellungen</h1>
+      </div>
+      <div class="admin-header-actions">
+        <a class="new-order-btn" href="/mitarbeiter/bestellungen/neu">+ Neue Bestellung</a>
+        <form class="logout-form" action="/mitarbeiter/logout" method="POST">
+          <button type="submit">Abmelden</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="order-filters" id="order-filters"></div>
+    <div class="order-table-wrap">
+      <table class="order-table">
+        <thead>
+          <tr>
+            <th>Kunde</th>
+            <th>Design(s)</th>
+            <th>Aktueller Schritt</th>
+            <th>Datum</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="order-rows"></tbody>
+      </table>
+      <p id="order-empty" class="order-empty" hidden>Keine Bestellungen in dieser Ansicht.</p>
+    </div>
+  </main>
+
+  <script src="/admin-bestellungen.js"></script>
+</body>
+</html>

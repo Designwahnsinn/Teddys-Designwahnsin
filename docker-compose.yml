@@ -1,9 +1,27 @@
 services:
-  teddys-designwahnsinn:
+  teddys-designwahnsinn-public:
     build: .
-    container_name: teddys-designwahnsinn
+    container_name: teddys-designwahnsinn-public
+    command: ["node", "server-public.js"]
     ports:
       - "8080:3000"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  # Mitarbeiterbereich: eigener Prozess, damit ein Besucheransturm auf die
+  # öffentliche Seite den Admin-/Bestellbereich nicht beeinträchtigt.
+  # Absichtlich nicht über denselben CDN/Reverse-Proxy wie die öffentliche
+  # Seite bewerben - separat/eingeschränkt exponieren (z.B. eigene Subdomain).
+  teddys-designwahnsinn-admin:
+    build: .
+    container_name: teddys-designwahnsinn-admin
+    command: ["node", "server-admin.js"]
+    ports:
+      - "8081:3001"
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads

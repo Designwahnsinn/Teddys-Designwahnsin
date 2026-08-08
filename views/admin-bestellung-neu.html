@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bestellung bearbeiten – Teddys Designwahnsinn</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <main>
+    <div class="admin-header">
+      <div>
+        <a class="admin-nav-link" href="/mitarbeiter/bestellungen">← Bestellungen</a>
+        <h1 id="wizard-title">Neue Bestellung</h1>
+      </div>
+      <div class="admin-header-actions">
+        <form class="logout-form" action="/mitarbeiter/logout" method="POST">
+          <button type="submit">Abmelden</button>
+        </form>
+      </div>
+    </div>
+
+    <ol class="wizard-progress" id="wizard-progress"></ol>
+
+    <div class="wizard-panel" id="wizard-panel"></div>
+  </main>
+
+  <script src="/admin-bestellung-neu.js"></script>
+</body>
+</html>

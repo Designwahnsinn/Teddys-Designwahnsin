@@ -2,13 +2,18 @@
   "name": "teddys-designwahnsinn",
   "version": "1.0.0",
   "private": true,
-  "main": "server.js",
+  "main": "server-public.js",
   "scripts": {
-    "start": "node server.js"
+    "start:public": "node server-public.js",
+    "start:admin": "node server-admin.js"
   },
   "dependencies": {
+    "better-sqlite3": "^11.3.0",
     "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
     "express-session": "^1.18.0",
+    "file-type": "^16.5.4",
+    "helmet": "^7.1.0",
     "multer": "^2.0.0"
   }
 }
