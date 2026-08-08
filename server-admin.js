@@ -75,6 +75,10 @@ function publicCors(req, res, next) {
     res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type");
   }
+  // Helmet setzt standardmäßig "Cross-Origin-Resource-Policy: same-origin" auf
+  // alle Antworten - das würde die Antwort dieses absichtlich cross-origin
+  // aufgerufenen Endpunkts im Browser blockieren. Für diese Route lockern.
+  res.header("Cross-Origin-Resource-Policy", "cross-origin");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 }
