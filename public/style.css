@@ -143,6 +143,57 @@ body {
 
 .subtitle { color: rgba(255, 255, 255, 0.94); font-size: 1.15rem; font-weight: 600; }
 
+.hero-text {
+  color: rgba(255, 255, 255, 0.9);
+  max-width: 560px;
+  margin: 0.75rem auto 0;
+  line-height: 1.6;
+}
+
+.feature-list {
+  list-style: none;
+  display: grid;
+  gap: 0.6rem;
+  margin: 1.25rem 0 1.5rem;
+}
+
+.feature-list li {
+  position: relative;
+  padding-left: 1.6rem;
+  color: var(--text);
+}
+
+.feature-list li::before {
+  content: "✅";
+  position: absolute;
+  left: 0;
+}
+
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+}
+
+.cta-btn {
+  display: inline-block;
+  padding: 0.75rem 1.5rem;
+  border-radius: 999px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: transform 0.12s ease;
+}
+
+.cta-btn:hover { transform: scale(1.04); }
+
+.cta-primary { background: var(--accent); color: #fff; }
+
+.cta-secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 2px solid var(--accent);
+}
+
 main {
   max-width: 1000px;
   margin: 0 auto;
