@@ -206,21 +206,42 @@ function renderStepAction(order, stepKey) {
       el("button", { type: "button", textContent: "Heruntergeladen – weiter", onclick: () => runStep() })
     );
   } else if (stepKey === "schritt_email_vorbereitet") {
-    const subject = encodeURIComponent(`Deine Bestellung bei Teddys Designwahnsinn`);
-    const body = encodeURIComponent(
-      `Hallo ${order.kunde_name},\n\nvielen Dank für deine Bestellung (${order.designs.map((d) => d.name).join(", ")}).\nDie Datei(en) und deine Rechnung findest du im Anhang.\n\nHINWEIS: Datei(en) + Rechnung manuell anhängen, bevor die Mail verschickt wird!\n\nViele Grüße`
-    );
-    const mailto = `mailto:${encodeURIComponent(order.kunde_email)}?subject=${subject}&body=${body}`;
-    panelEl.append(
-      el("h2", { textContent: "Schritt 5 · E-Mail vorbereiten" }),
-      el("p", { className: "wizard-hint", textContent: "Öffnet dein E-Mail-Programm mit vorausgefülltem Text. Datei(en) + Rechnung nicht vergessen anzuhängen!" }),
-      errorMsg,
-      el("button", {
-        type: "button",
-        textContent: "E-Mail öffnen & Schritt abschließen",
-        onclick: () => runStep(() => { window.location.href = mailto; }),
-      })
-    );
+    const designNames = order.designs.map((d) => d.name).join(", ");
+    const wantsWhatsapp = order.kontakt_praeferenz === "WhatsApp" && order.kunde_whatsapp;
+
+    if (wantsWhatsapp) {
+      const waNumber = order.kunde_whatsapp.replace(/[^\d+]/g, "").replace(/^\+/, "");
+      const text = encodeURIComponent(
+        `Hallo ${order.kunde_name}, vielen Dank für deine Bestellung (${designNames}). Die Datei(en) und deine Rechnung schicken wir dir gleich hier rüber!`
+      );
+      const waLink = `https://wa.me/${waNumber}?text=${text}`;
+      panelEl.append(
+        el("h2", { textContent: "Schritt 5 · Kontakt vorbereiten (WhatsApp gewünscht)" }),
+        el("p", { className: "wizard-hint", textContent: "Kunde möchte per WhatsApp kontaktiert werden. Öffnet WhatsApp mit vorausgefülltem Text – Datei(en) + Rechnung dort anhängen." }),
+        errorMsg,
+        el("button", {
+          type: "button",
+          textContent: "WhatsApp öffnen & Schritt abschließen",
+          onclick: () => runStep(() => { window.open(waLink, "_blank"); }),
+        })
+      );
+    } else {
+      const subject = encodeURIComponent(`Deine Bestellung bei Teddys Designwahnsinn`);
+      const body = encodeURIComponent(
+        `Hallo ${order.kunde_name},\n\nvielen Dank für deine Bestellung (${designNames}).\nDie Datei(en) und deine Rechnung findest du im Anhang.\n\nHINWEIS: Datei(en) + Rechnung manuell anhängen, bevor die Mail verschickt wird!\n\nViele Grüße`
+      );
+      const mailto = `mailto:${encodeURIComponent(order.kunde_email)}?subject=${subject}&body=${body}`;
+      panelEl.append(
+        el("h2", { textContent: "Schritt 5 · E-Mail vorbereiten" }),
+        el("p", { className: "wizard-hint", textContent: "Öffnet dein E-Mail-Programm mit vorausgefülltem Text. Datei(en) + Rechnung nicht vergessen anzuhängen!" }),
+        errorMsg,
+        el("button", {
+          type: "button",
+          textContent: "E-Mail öffnen & Schritt abschließen",
+          onclick: () => runStep(() => { window.location.href = mailto; }),
+        })
+      );
+    }
   } else if (stepKey === "schritt_verschickt") {
     panelEl.append(
       el("h2", { textContent: "Schritt 6 · Als verschickt markieren" }),

@@ -250,6 +250,9 @@ inquiryForm.addEventListener("submit", async (e) => {
       body: JSON.stringify({
         kunde_name: document.getElementById("inquiry-name").value.trim(),
         kunde_email: document.getElementById("inquiry-email").value.trim(),
+        kunde_instagram: document.getElementById("inquiry-instagram").value.trim(),
+        kunde_whatsapp: document.getElementById("inquiry-whatsapp").value.trim(),
+        kontakt_praeferenz: inquiryForm.querySelector('input[name="kontakt_praeferenz"]:checked').value,
         message: document.getElementById("inquiry-message").value.trim(),
         designIds: [...selection],
       }),

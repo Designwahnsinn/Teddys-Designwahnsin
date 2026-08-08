@@ -556,7 +556,7 @@ h2 {
 
 #inquiry-form { display: grid; gap: 0.5rem; margin-top: 1rem; }
 #inquiry-form label { font-weight: 600; font-size: 0.9rem; }
-#inquiry-form input,
+#inquiry-form input:not([type="radio"]),
 #inquiry-form textarea {
   width: 100%;
   padding: 0.6rem 0.8rem;
@@ -578,6 +578,15 @@ h2 {
 #inquiry-message-status { font-size: 0.85rem; min-height: 1.2em; }
 #inquiry-message-status.error { color: #c0392b; }
 #inquiry-message-status.success { color: #2d7a4f; }
+
+.contact-pref-row { display: flex; gap: 1.2rem; margin-bottom: 0.3rem; }
+.contact-pref-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 500 !important;
+  cursor: pointer;
+}
 
 a { color: var(--accent); }
 

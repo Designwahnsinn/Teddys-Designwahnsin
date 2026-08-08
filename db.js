@@ -55,6 +55,9 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kunde_name TEXT NOT NULL,
     kunde_email TEXT NOT NULL,
+    kunde_instagram TEXT,
+    kunde_whatsapp TEXT,
+    kontakt_praeferenz TEXT NOT NULL DEFAULT 'E-Mail',
     bestelldatum TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'Offen',
     schritt_rechnung INTEGER NOT NULL DEFAULT 0,
@@ -85,6 +88,9 @@ function ensureColumn(table, column, definition) {
   }
 }
 ensureColumn("designs", "instagramLink", "TEXT");
+ensureColumn("orders", "kunde_instagram", "TEXT");
+ensureColumn("orders", "kunde_whatsapp", "TEXT");
+ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
 
 migrateFromLegacyJson();
 
@@ -214,11 +220,18 @@ function deleteCategory(name) {
 
 // --- Bestellungen ---
 
-function createOrder({ kunde_name, kunde_email }) {
+function createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz }) {
   const info = db.prepare(`
-    INSERT INTO orders (kunde_name, kunde_email, bestelldatum, status)
-    VALUES (?, ?, ?, 'Offen')
-  `).run(kunde_name, kunde_email, new Date().toISOString());
+    INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'Offen')
+  `).run(
+    kunde_name,
+    kunde_email,
+    kunde_instagram || "",
+    kunde_whatsapp || "",
+    kontakt_praeferenz || "E-Mail",
+    new Date().toISOString()
+  );
   return getOrder(info.lastInsertRowid);
 }
 
@@ -257,7 +270,17 @@ function listOrders(status) {
 }
 
 const ORDER_STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt"];
-const ORDER_UPDATE_FIELDS = ["kunde_name", "kunde_email", "status", "notiz", ...ORDER_STEPS];
+const ORDER_UPDATE_FIELDS = [
+  "kunde_name",
+  "kunde_email",
+  "kunde_instagram",
+  "kunde_whatsapp",
+  "kontakt_praeferenz",
+  "status",
+  "notiz",
+  ...ORDER_STEPS,
+];
+const KONTAKT_PRAEFERENZ_VALUES = ["E-Mail", "WhatsApp"];
 
 // Freie Bearbeitung: im Gegensatz zu advanceOrderStep() keine Reihenfolge-Pflicht,
 // Schritte lassen sich einzeln an-/abhaken, auch bei bereits abgeschlossenen Bestellungen.
@@ -341,6 +364,7 @@ module.exports = {
   deleteCategory,
   ORDER_STEPS,
   ORDER_STATUS_VALUES,
+  KONTAKT_PRAEFERENZ_VALUES,
   createOrder,
   setOrderDesigns,
   getOrder,

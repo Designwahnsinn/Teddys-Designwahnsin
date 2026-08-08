@@ -80,13 +80,22 @@
     <div class="inquiry-panel-wrap" role="dialog" aria-modal="true">
       <button class="lightbox-close" id="inquiry-close" aria-label="Schließen">×</button>
       <h2>Deine Anfrage</h2>
-      <p class="wizard-hint">Diese Designs interessieren dich – wir melden uns per E-Mail mit allen weiteren Infos.</p>
+      <p class="wizard-hint">Diese Designs interessieren dich – wir melden uns mit allen weiteren Infos.</p>
       <div class="inquiry-selected-list" id="inquiry-selected-list"></div>
       <form id="inquiry-form">
         <label for="inquiry-name">Name</label>
         <input type="text" id="inquiry-name" required>
         <label for="inquiry-email">E-Mail</label>
         <input type="email" id="inquiry-email" required>
+        <label for="inquiry-instagram">Instagram-Name (optional)</label>
+        <input type="text" id="inquiry-instagram" placeholder="@dein_name">
+        <label for="inquiry-whatsapp">WhatsApp-Nummer (optional)</label>
+        <input type="tel" id="inquiry-whatsapp" placeholder="+49 151 …">
+        <label>Wie dürfen wir dich am liebsten kontaktieren?</label>
+        <div class="contact-pref-row">
+          <label class="contact-pref-option"><input type="radio" name="kontakt_praeferenz" value="E-Mail" checked> E-Mail</label>
+          <label class="contact-pref-option"><input type="radio" name="kontakt_praeferenz" value="WhatsApp"> WhatsApp</label>
+        </div>
         <label for="inquiry-message">Nachricht (optional)</label>
         <textarea id="inquiry-message" rows="3"></textarea>
         <button type="submit">Anfrage senden</button>

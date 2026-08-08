@@ -2,6 +2,7 @@ const titleEl = document.getElementById("edit-title");
 const panelEl = document.getElementById("edit-panel");
 
 const STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt"];
+const KONTAKT_PRAEFERENZ_VALUES = ["E-Mail", "WhatsApp"];
 const STEP_LABELS = {
   schritt_rechnung: "Rechnung erstellt",
   schritt_download: "Design(s) heruntergeladen",
@@ -45,6 +46,12 @@ function render(order, allDesigns) {
   // --- Kunde ---
   const nameInput = el("input", { type: "text", value: order.kunde_name, required: true });
   const emailInput = el("input", { type: "email", value: order.kunde_email, required: true });
+  const instagramInput = el("input", { type: "text", value: order.kunde_instagram || "", placeholder: "@name" });
+  const whatsappInput = el("input", { type: "tel", value: order.kunde_whatsapp || "", placeholder: "+49 …" });
+  const praeferenzSelect = el("select");
+  KONTAKT_PRAEFERENZ_VALUES.forEach((v) => {
+    praeferenzSelect.appendChild(el("option", { value: v, textContent: v, selected: v === order.kontakt_praeferenz }));
+  });
 
   // --- Status ---
   const statusSelect = el("select");
@@ -93,6 +100,9 @@ function render(order, allDesigns) {
     const patchBody = {
       kunde_name: nameInput.value.trim(),
       kunde_email: emailInput.value.trim(),
+      kunde_instagram: instagramInput.value.trim(),
+      kunde_whatsapp: whatsappInput.value.trim(),
+      kontakt_praeferenz: praeferenzSelect.value,
       status: statusSelect.value,
       notiz: notizInput.value,
     };
@@ -137,6 +147,9 @@ function render(order, allDesigns) {
   panelEl.append(
     el("label", { textContent: "Kundenname" }), nameInput,
     el("label", { textContent: "E-Mail" }), emailInput,
+    el("label", { textContent: "Instagram-Name" }), instagramInput,
+    el("label", { textContent: "WhatsApp-Nummer" }), whatsappInput,
+    el("label", { textContent: "Kontaktpräferenz" }), praeferenzSelect,
     el("label", { textContent: "Status" }), statusSelect,
     el("label", { textContent: "Notiz" }), notizInput,
     el("h2", { textContent: "Zugeordnete Designs" }),

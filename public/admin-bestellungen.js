@@ -68,8 +68,14 @@ async function loadOrders() {
     const editLink = el("a", { className: "admin-nav-link", textContent: "✏️ Bearbeiten", href: `/mitarbeiter/bestellungen/bearbeiten?id=${order.id}` });
     editLink.addEventListener("click", (e) => e.stopPropagation());
 
+    const contactIcon = order.kontakt_praeferenz === "WhatsApp" ? "💬 WhatsApp" : "📧 E-Mail";
+
     row.append(
-      el("td", {}, [el("strong", { textContent: order.kunde_name }), el("div", { className: "muted", textContent: order.kunde_email })]),
+      el("td", {}, [
+        el("strong", { textContent: order.kunde_name }),
+        el("div", { className: "muted", textContent: order.kunde_email }),
+        el("div", { className: "muted", textContent: contactIcon }),
+      ]),
       el("td", { textContent: order.designs.map((d) => d.name).join(", ") || "–" }),
       el("td", { textContent: currentStepLabel(order) }),
       el("td", { textContent: formatDate(order.bestelldatum) }),

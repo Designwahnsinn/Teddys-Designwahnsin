@@ -348,7 +348,7 @@ app.post("/api/admin/orders/:id/complete", requireAuth, (req, res) => {
 // Freie Bearbeitung einer bestehenden Bestellung: Kunde, Status und Schritte
 // unabhängig von der Wizard-Reihenfolge änderbar, auch bei "Erledigt".
 app.patch("/api/admin/orders/:id", requireAuth, (req, res) => {
-  const { kunde_name, kunde_email, status, notiz } = req.body;
+  const { kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, status, notiz } = req.body;
   const changes = {};
 
   if (kunde_name !== undefined) {
@@ -358,6 +358,14 @@ app.patch("/api/admin/orders/:id", requireAuth, (req, res) => {
   if (kunde_email !== undefined) {
     if (!kunde_email.trim()) return res.status(400).json({ error: "E-Mail darf nicht leer sein" });
     changes.kunde_email = kunde_email.trim();
+  }
+  if (kunde_instagram !== undefined) changes.kunde_instagram = kunde_instagram.trim();
+  if (kunde_whatsapp !== undefined) changes.kunde_whatsapp = kunde_whatsapp.trim();
+  if (kontakt_praeferenz !== undefined) {
+    if (!db.KONTAKT_PRAEFERENZ_VALUES.includes(kontakt_praeferenz)) {
+      return res.status(400).json({ error: "Ungültige Kontaktpräferenz" });
+    }
+    changes.kontakt_praeferenz = kontakt_praeferenz;
   }
   if (status !== undefined) {
     if (!db.ORDER_STATUS_VALUES.includes(status)) {
@@ -386,18 +394,27 @@ app.options("/api/public/inquiries", publicCors);
 app.post("/api/public/inquiries", publicCors, inquiryLimiter, (req, res) => {
   const kunde_name = (req.body.kunde_name || "").trim();
   const kunde_email = (req.body.kunde_email || "").trim();
+  const kunde_instagram = (req.body.kunde_instagram || "").trim();
+  const kunde_whatsapp = (req.body.kunde_whatsapp || "").trim();
+  const kontakt_praeferenz = (req.body.kontakt_praeferenz || "E-Mail").trim();
   const message = (req.body.message || "").trim();
   const designIds = Array.isArray(req.body.designIds) ? req.body.designIds : [];
 
   if (!kunde_name) return res.status(400).json({ error: "Name ist ein Pflichtfeld" });
   if (!EMAIL_PATTERN.test(kunde_email)) return res.status(400).json({ error: "Bitte eine gültige E-Mail-Adresse angeben" });
+  if (!db.KONTAKT_PRAEFERENZ_VALUES.includes(kontakt_praeferenz)) {
+    return res.status(400).json({ error: "Ungültige Kontaktpräferenz" });
+  }
+  if (kontakt_praeferenz === "WhatsApp" && !kunde_whatsapp) {
+    return res.status(400).json({ error: "Bitte eine WhatsApp-Nummer angeben, wenn WhatsApp bevorzugt wird" });
+  }
   if (designIds.length === 0) return res.status(400).json({ error: "Bitte mindestens ein Design auswählen" });
 
   const knownIds = new Set(db.getDesigns().map((d) => d.id));
   const validIds = designIds.filter((id) => knownIds.has(id));
   if (validIds.length === 0) return res.status(400).json({ error: "Keine gültigen Designs ausgewählt" });
 
-  const order = db.createOrder({ kunde_name, kunde_email });
+  const order = db.createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz });
   db.updateOrder(order.id, { notiz: `[Website-Anfrage] ${message || "(keine Nachricht)"}` });
   const updated = db.setOrderDesigns(order.id, validIds);
 
