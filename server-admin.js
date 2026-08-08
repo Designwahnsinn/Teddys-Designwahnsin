@@ -306,10 +306,16 @@ app.get("/api/admin/orders/:id", requireAuth, (req, res) => {
 app.post("/api/admin/orders", requireAuth, (req, res) => {
   const kunde_name = (req.body.kunde_name || "").trim();
   const kunde_email = (req.body.kunde_email || "").trim();
+  const kunde_instagram = (req.body.kunde_instagram || "").trim();
+  const kunde_whatsapp = (req.body.kunde_whatsapp || "").trim();
+  const kontakt_praeferenz = (req.body.kontakt_praeferenz || "E-Mail").trim();
   if (!kunde_name || !kunde_email) {
     return res.status(400).json({ error: "Kundenname und E-Mail sind Pflichtfelder" });
   }
-  res.status(201).json(db.createOrder({ kunde_name, kunde_email }));
+  if (!db.KONTAKT_PRAEFERENZ_VALUES.includes(kontakt_praeferenz)) {
+    return res.status(400).json({ error: "Ungültige Kontaktpräferenz" });
+  }
+  res.status(201).json(db.createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz }));
 });
 
 // Schritt 2: Designs zuordnen

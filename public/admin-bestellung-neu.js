@@ -78,12 +78,23 @@ function renderStep1Form() {
 
   const nameInput = el("input", { type: "text", placeholder: "Kundenname", required: true });
   const emailInput = el("input", { type: "email", placeholder: "kunde@example.com", required: true });
+  const instagramInput = el("input", { type: "text", placeholder: "@dein_name" });
+  const whatsappInput = el("input", { type: "tel", placeholder: "+49 151 …" });
+  const praeferenzEmail = el("input", { type: "radio", name: "kontakt_praeferenz", value: "E-Mail", checked: true });
+  const praeferenzWhatsapp = el("input", { type: "radio", name: "kontakt_praeferenz", value: "WhatsApp" });
   const errorMsg = el("p", { className: "wizard-error" });
   const submitBtn = el("button", { type: "submit", textContent: "Weiter zu Schritt 2" });
 
   const form = el("form", { className: "wizard-form" }, [
     el("label", { textContent: "Kundenname" }), nameInput,
     el("label", { textContent: "E-Mail" }), emailInput,
+    el("label", { textContent: "Instagram-Name (optional)" }), instagramInput,
+    el("label", { textContent: "WhatsApp-Nummer (optional)" }), whatsappInput,
+    el("label", { textContent: "Kontaktpräferenz" }),
+    el("div", { className: "contact-pref-row" }, [
+      el("label", { className: "contact-pref-option" }, [praeferenzEmail, document.createTextNode(" E-Mail")]),
+      el("label", { className: "contact-pref-option" }, [praeferenzWhatsapp, document.createTextNode(" WhatsApp")]),
+    ]),
     errorMsg,
     submitBtn,
   ]);
@@ -93,7 +104,13 @@ function renderStep1Form() {
     const res = await fetch("/api/admin/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kunde_name: nameInput.value.trim(), kunde_email: emailInput.value.trim() }),
+      body: JSON.stringify({
+        kunde_name: nameInput.value.trim(),
+        kunde_email: emailInput.value.trim(),
+        kunde_instagram: instagramInput.value.trim(),
+        kunde_whatsapp: whatsappInput.value.trim(),
+        kontakt_praeferenz: praeferenzWhatsapp.checked ? "WhatsApp" : "E-Mail",
+      }),
     });
     const data = await res.json();
     if (!res.ok) {
