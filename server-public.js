@@ -12,7 +12,19 @@ const ONE_YEAR = 60 * 60 * 24 * 365;
 
 const app = express();
 app.set("trust proxy", 1);
-app.use(helmet());
+app.use(
+  helmet({
+    // Erlaubt fetch()-Anfragen der Anfrage-Funktion vom Browser aus zur
+    // separaten Mitarbeiter-Subdomain - ohne das würde Helmets Standard-CSP
+    // (connect-src fällt auf default-src 'self' zurück) das blockieren.
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "connect-src": ["'self'", "https://mitarbeiter.designwahnsinn-teddy.de"],
+      },
+    },
+  })
+);
 
 function toPublicDesign(d) {
   // driveLink ist nur für den internen Mitarbeiter-Bereich gedacht
