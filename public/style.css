@@ -452,6 +452,133 @@ h2 {
 
 .hint { font-size: 0.95rem; font-style: italic; color: var(--muted); }
 
+/* Auswahl-Toggle auf den Design-Karten */
+.select-toggle {
+  display: inline-block;
+  margin-top: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.select-toggle.selected { background: #fff; color: var(--accent); }
+
+.lightbox-inquiry-btn {
+  display: block;
+  width: 100%;
+  text-align: center;
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 1rem;
+  background: var(--bg-alt);
+  color: var(--accent);
+  border: 2px solid var(--accent);
+  transition: transform 0.12s ease;
+}
+
+.lightbox-inquiry-btn:hover { transform: scale(1.03); }
+.lightbox-inquiry-btn.selected { background: var(--accent); color: #fff; }
+
+/* Schwebender Anfrage-Button */
+.inquiry-bar {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 40;
+}
+
+.inquiry-bar button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 0.9rem 1.5rem;
+  font-weight: 700;
+  font-size: 1rem;
+  font-family: inherit;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.inquiry-bar button:hover { transform: scale(1.04); }
+
+/* Anfrage-Modal */
+.inquiry-panel-wrap {
+  position: relative;
+  background: var(--bg-alt);
+  border-radius: 20px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 1.75rem;
+}
+
+.inquiry-panel-wrap h2 { color: var(--accent); font-size: 1.3rem; margin-bottom: 0.4rem; }
+
+.inquiry-selected-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.inquiry-selected-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.4rem 0.6rem;
+}
+
+.inquiry-selected-item img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; }
+.inquiry-selected-item span { flex: 1; font-size: 0.9rem; }
+
+.inquiry-selected-item button {
+  border: none;
+  background: none;
+  color: #c0392b;
+  font-size: 1.1rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+#inquiry-form { display: grid; gap: 0.5rem; margin-top: 1rem; }
+#inquiry-form label { font-weight: 600; font-size: 0.9rem; }
+#inquiry-form input,
+#inquiry-form textarea {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 1rem;
+}
+#inquiry-form button[type="submit"] {
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  margin-top: 0.4rem;
+}
+#inquiry-message-status { font-size: 0.85rem; min-height: 1.2em; }
+#inquiry-message-status.error { color: #c0392b; }
+#inquiry-message-status.success { color: #2d7a4f; }
+
 a { color: var(--accent); }
 
 footer {

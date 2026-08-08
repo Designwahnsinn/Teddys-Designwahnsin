@@ -62,11 +62,36 @@
         <p id="lightbox-description"></p>
         <p class="lightbox-price" id="lightbox-price"></p>
         <div class="lightbox-actions">
+          <button type="button" class="lightbox-inquiry-btn" id="lightbox-inquiry-toggle">+ Zur Anfrage hinzufügen</button>
           <a class="btn btn-whatsapp" id="lightbox-whatsapp" target="_blank" rel="noopener" hidden>Per WhatsApp anfragen</a>
           <a class="btn btn-buy" id="lightbox-buy" target="_blank" rel="noopener" hidden>Jetzt kaufen</a>
           <a class="btn btn-instagram" id="lightbox-instagram" target="_blank" rel="noopener" hidden>📸 Auf Instagram ansehen</a>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div class="inquiry-bar" id="inquiry-bar" hidden>
+    <button type="button" id="inquiry-open-btn">📩 Anfrage senden (<span id="inquiry-count">0</span>)</button>
+  </div>
+
+  <div class="lightbox" id="inquiry-modal" hidden>
+    <div class="lightbox-backdrop" id="inquiry-backdrop"></div>
+    <div class="inquiry-panel-wrap" role="dialog" aria-modal="true">
+      <button class="lightbox-close" id="inquiry-close" aria-label="Schließen">×</button>
+      <h2>Deine Anfrage</h2>
+      <p class="wizard-hint">Diese Designs interessieren dich – wir melden uns per E-Mail mit allen weiteren Infos.</p>
+      <div class="inquiry-selected-list" id="inquiry-selected-list"></div>
+      <form id="inquiry-form">
+        <label for="inquiry-name">Name</label>
+        <input type="text" id="inquiry-name" required>
+        <label for="inquiry-email">E-Mail</label>
+        <input type="email" id="inquiry-email" required>
+        <label for="inquiry-message">Nachricht (optional)</label>
+        <textarea id="inquiry-message" rows="3"></textarea>
+        <button type="submit">Anfrage senden</button>
+        <p id="inquiry-message-status"></p>
+      </form>
     </div>
   </div>
 

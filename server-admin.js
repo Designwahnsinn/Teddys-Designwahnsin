@@ -63,6 +63,32 @@ const loginLimiter = rateLimit({
   message: { error: "Zu viele Login-Versuche. Bitte in 15 Minuten erneut versuchen." },
 });
 
+// Von der öffentlichen Website aus (andere Origin) erreichbar: Kunden-Anfragen
+// aus dem "Anfrage"-Formular. Bewusst kein CSRF-Schutz nötig, da unauthenticated
+// und ohne Session-Wirkung - dafür streng rate-limitiert.
+const PUBLIC_ORIGINS = ["https://designwahnsinn-teddy.de", "https://www.designwahnsinn-teddy.de"];
+
+function publicCors(req, res, next) {
+  const origin = req.headers.origin;
+  if (PUBLIC_ORIGINS.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+}
+
+const inquiryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Zu viele Anfragen. Bitte später erneut versuchen." },
+});
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 // Dateien landen erst im Speicher, damit die Signatur geprüft werden kann,
 // bevor irgendetwas auf Platte geschrieben wird (MIME-Type allein ist spoofbar).
 const upload = multer({
@@ -349,6 +375,29 @@ app.delete("/api/admin/orders/:id", requireAuth, (req, res) => {
   const removed = db.deleteOrder(Number(req.params.id));
   if (!removed) return res.status(404).json({ error: "Bestellung nicht gefunden" });
   res.json({ ok: true });
+});
+
+// --- Öffentliche Anfragen von der Website (kein Login) ---
+app.options("/api/public/inquiries", publicCors);
+app.post("/api/public/inquiries", publicCors, inquiryLimiter, (req, res) => {
+  const kunde_name = (req.body.kunde_name || "").trim();
+  const kunde_email = (req.body.kunde_email || "").trim();
+  const message = (req.body.message || "").trim();
+  const designIds = Array.isArray(req.body.designIds) ? req.body.designIds : [];
+
+  if (!kunde_name) return res.status(400).json({ error: "Name ist ein Pflichtfeld" });
+  if (!EMAIL_PATTERN.test(kunde_email)) return res.status(400).json({ error: "Bitte eine gültige E-Mail-Adresse angeben" });
+  if (designIds.length === 0) return res.status(400).json({ error: "Bitte mindestens ein Design auswählen" });
+
+  const knownIds = new Set(db.getDesigns().map((d) => d.id));
+  const validIds = designIds.filter((id) => knownIds.has(id));
+  if (validIds.length === 0) return res.status(400).json({ error: "Keine gültigen Designs ausgewählt" });
+
+  const order = db.createOrder({ kunde_name, kunde_email });
+  db.updateOrder(order.id, { notiz: `[Website-Anfrage] ${message || "(keine Nachricht)"}` });
+  const updated = db.setOrderDesigns(order.id, validIds);
+
+  res.status(201).json({ ok: true, id: updated.id });
 });
 
 app.listen(PORT, () => {
