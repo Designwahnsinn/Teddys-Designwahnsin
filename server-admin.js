@@ -246,7 +246,6 @@ app.get("/api/config", requireAuth, (req, res) => {
   res.json({
     categories: db.getCategories(),
     whatsappNumber: WHATSAPP_NUMBER,
-    imageKategorien: db.IMAGE_KATEGORIE_VALUES,
     siteLive,
     previewUrl: !siteLive && previewSecret ? `${PUBLIC_ORIGINS[0]}/?preview=${previewSecret}` : null,
   });
@@ -301,7 +300,8 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
       const extra = await persistUploadedImage(file);
       db.addDesignImage({
         design_id: design.id,
-        kategorie: "Mit Wasserzeichen",
+        wasserzeichen: true,
+        hintergrundVariante: false,
         bezeichnung: `Bild ${i + 2}`,
         image: `/uploads/${extra.filename}`,
         sichtbar: true,
@@ -386,11 +386,10 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10
   const design = db.getDesign(req.params.id);
   if (!design) return res.status(404).json({ error: "Design nicht gefunden" });
 
-  const { kategorie, bezeichnung } = req.body;
+  const { bezeichnung } = req.body;
+  const wasserzeichen = req.body.wasserzeichen === "true" || req.body.wasserzeichen === "on";
+  const hintergrundVariante = req.body.hintergrundVariante === "true" || req.body.hintergrundVariante === "on";
   const files = req.files || [];
-  if (!kategorie || !db.IMAGE_KATEGORIE_VALUES.includes(kategorie)) {
-    return res.status(400).json({ error: "Ungültige Kategorie" });
-  }
   if (files.length === 0) {
     return res.status(400).json({ error: "Mindestens ein Bild ist Pflichtfeld" });
   }
@@ -405,13 +404,14 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10
       const imageBezeichnung = files.length > 1 ? `${bezeichnung || "Bild"} ${i + 1}` : bezeichnung || "";
       const image = db.addDesignImage({
         design_id: req.params.id,
-        kategorie,
+        wasserzeichen,
+        hintergrundVariante,
         bezeichnung: imageBezeichnung,
         image: `/uploads/${filename}`,
         qualityWarning,
       });
       const ext = filename.split(".").pop();
-      sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), design.id, kategorie, imageBezeichnung, ext);
+      sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), design.id, image.kategorie, imageBezeichnung, ext);
       images.push(image);
       if (qualityWarning) qualityWarnings.push(qualityWarning);
     }
@@ -422,9 +422,9 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10
 });
 
 app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
-  const { sichtbar, kategorie } = req.body;
-  if (sichtbar === undefined && kategorie === undefined) {
-    return res.status(400).json({ error: "sichtbar oder kategorie ist Pflichtfeld" });
+  const { sichtbar, wasserzeichen, hintergrundVariante } = req.body;
+  if (sichtbar === undefined && wasserzeichen === undefined && hintergrundVariante === undefined) {
+    return res.status(400).json({ error: "sichtbar, wasserzeichen oder hintergrundVariante ist Pflichtfeld" });
   }
 
   let updated = null;
@@ -436,21 +436,24 @@ app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
     if (!updated) return res.status(404).json({ error: "Bild nicht gefunden" });
   }
 
-  if (kategorie !== undefined) {
-    if (!db.IMAGE_KATEGORIE_VALUES.includes(kategorie)) {
-      return res.status(400).json({ error: "Ungültige Kategorie" });
+  if (wasserzeichen !== undefined || hintergrundVariante !== undefined) {
+    if (wasserzeichen !== undefined && typeof wasserzeichen !== "boolean") {
+      return res.status(400).json({ error: "wasserzeichen muss ein boolean sein" });
     }
-    const result = db.setDesignImageKategorie(req.params.imageId, kategorie);
+    if (hintergrundVariante !== undefined && typeof hintergrundVariante !== "boolean") {
+      return res.status(400).json({ error: "hintergrundVariante muss ein boolean sein" });
+    }
+    const result = db.setDesignImageEigenschaften(req.params.imageId, { wasserzeichen, hintergrundVariante });
     if (!result) return res.status(404).json({ error: "Bild nicht gefunden" });
     const { old: previous, updated: afterUpdate } = result;
     updated = afterUpdate;
-    if (previous.kategorie !== kategorie) {
+    if (previous.kategorie !== afterUpdate.kategorie) {
       const ext = previous.image.split(".").pop();
       sortedUploads.removeSorted(req.params.id, previous.kategorie, previous.bezeichnung, ext);
       sortedUploads.mirrorSorted(
         path.join(UPLOADS_DIR, path.basename(previous.image)),
         req.params.id,
-        kategorie,
+        afterUpdate.kategorie,
         previous.bezeichnung,
         ext
       );
@@ -720,6 +723,48 @@ app.get("/api/admin/nas-browse/download", requireAuth, (req, res) => {
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
   }
+});
+
+// Wie /download, aber ohne Content-Disposition: attachment - dient als
+// <img src> für die Miniaturvorschau im NAS-Ordner-Browser, statt jedes Bild
+// gleich herunterzuladen.
+app.get("/api/admin/nas-browse/view", requireAuth, (req, res) => {
+  try {
+    const target = resolveNasPath(req.query.path || "");
+    if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      return res.status(404).send();
+    }
+    res.sendFile(target);
+  } catch (err) {
+    res.status(err.status || 400).send();
+  }
+});
+
+// --- Feedback-Notizen (Dashboard) ---
+app.get("/api/admin/feedback", requireAuth, (req, res) => {
+  res.json(db.listFeedback());
+});
+
+app.post("/api/admin/feedback", requireAuth, (req, res) => {
+  const text = (req.body.text || "").trim();
+  if (!text) return res.status(400).json({ error: "Text ist Pflichtfeld" });
+  res.status(201).json(db.addFeedback(text));
+});
+
+app.patch("/api/admin/feedback/:id", requireAuth, (req, res) => {
+  const { status } = req.body;
+  if (status !== "offen" && status !== "erledigt") {
+    return res.status(400).json({ error: "status muss 'offen' oder 'erledigt' sein" });
+  }
+  const updated = db.setFeedbackStatus(req.params.id, status);
+  if (!updated) return res.status(404).json({ error: "Nicht gefunden" });
+  res.json(updated);
+});
+
+app.delete("/api/admin/feedback/:id", requireAuth, (req, res) => {
+  const ok = db.deleteFeedback(req.params.id);
+  if (!ok) return res.status(404).json({ error: "Nicht gefunden" });
+  res.json({ ok: true });
 });
 
 app.listen(PORT, () => {

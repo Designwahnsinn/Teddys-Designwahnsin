@@ -40,8 +40,6 @@ function renderCardView(d, body) {
   const editBtn = el("button", { className: "edit-btn", textContent: "Bearbeiten" });
   editBtn.addEventListener("click", () => renderCardEdit(d, body));
 
-  const imagesLink = el("a", { className: "edit-btn", textContent: "🖼️ Bilder", href: `/mitarbeiter/designs/bilder?id=${d.id}` });
-
   const deleteBtn = el("button", { className: "delete-btn", textContent: "Löschen" });
   deleteBtn.dataset.id = d.id;
 
@@ -56,9 +54,36 @@ function renderCardView(d, body) {
       el("a", { href: d.driveLink, target: "_blank", rel: "noopener", textContent: "📁 Originaldatei auf Drive" }),
     ]));
   }
-  children.push(el("div", { className: "card-actions" }, [statusSelect, onlineSelect, editBtn, imagesLink, deleteBtn]));
+  children.push(el("div", { className: "card-actions" }, [statusSelect, onlineSelect, editBtn, deleteBtn]));
 
   body.append(...children);
+}
+
+function renderImageThumbs(d) {
+  const wrap = el("div", { className: "edit-image-thumbs" });
+  wrap.appendChild(el("p", { textContent: "Lädt Bilder …" }));
+
+  fetch(`/api/admin/designs/${d.id}/images`)
+    .then((res) => res.json())
+    .then((images) => {
+      wrap.innerHTML = "";
+      images.forEach((img) => {
+        const label = img.hintergrundVariante
+          ? (img.wasserzeichen ? "Hintergrund (mit WZ)" : "Hintergrund (ohne WZ)")
+          : (img.wasserzeichen ? "Mit WZ" : "Ohne WZ");
+        wrap.appendChild(
+          el("div", { className: "edit-image-thumb", title: img.bezeichnung ? `${label} – ${img.bezeichnung}` : label }, [
+            el("img", { src: img.image, alt: label }),
+            img.ist_hauptbild ? el("span", { className: "edit-image-thumb-badge", textContent: "★" }) : null,
+          ].filter(Boolean))
+        );
+      });
+      wrap.appendChild(
+        el("a", { className: "edit-btn", textContent: "🖼️ Alle Bilder verwalten →", href: `/mitarbeiter/designs/bilder?id=${d.id}` })
+      );
+    });
+
+  return wrap;
 }
 
 function renderCardEdit(d, body) {
@@ -115,7 +140,9 @@ function renderCardEdit(d, body) {
     el("label", { textContent: "Instagram-Link" }), instagramInput,
     el("label", { textContent: "Google-Drive-Link (intern)" }), driveInput,
     errorMsg,
-    el("div", { className: "card-actions" }, [saveBtn, cancelBtn])
+    el("div", { className: "card-actions" }, [saveBtn, cancelBtn]),
+    el("label", { textContent: "Bilder-Varianten" }),
+    renderImageThumbs(d)
   );
 }
 

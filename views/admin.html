@@ -45,6 +45,16 @@
         <p>Sortierte Bild-Ablage ansehen (Quelle für den Sync zu Google Drive)</p>
       </a>
     </div>
+
+    <section class="feedback-section">
+      <h2>📝 Feedback &amp; offene Punkte</h2>
+      <p class="wizard-hint">Kurz notieren, was noch geändert/verbessert werden soll – später mit Claude Code besprechen und abhaken.</p>
+      <form id="feedback-form" class="feedback-form">
+        <textarea id="feedback-text" rows="2" placeholder="z. B. Bilder-Vorschau bei Design hochladen ergänzen" required></textarea>
+        <button type="submit">Hinzufügen</button>
+      </form>
+      <div id="feedback-list" class="feedback-list"></div>
+    </section>
   </main>
 
   <script src="/admin-dashboard.js"></script>

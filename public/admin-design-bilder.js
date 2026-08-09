@@ -1,13 +1,10 @@
 const designId = new URLSearchParams(window.location.search).get("id");
 const titleEl = document.getElementById("design-title");
 const gridEl = document.getElementById("image-grid");
-const kategorieSelect = document.getElementById("image-kategorie");
 const uploadForm = document.getElementById("image-upload-form");
 const uploadMessage = document.getElementById("upload-message");
 const fileInput = document.getElementById("image-file");
 const filePreview = document.getElementById("image-file-preview");
-
-let imageKategorien = [];
 
 function el(tag, props, children) {
   const node = document.createElement(tag);
@@ -28,7 +25,7 @@ async function loadImages() {
 }
 
 function renderImageCard(img) {
-  const isVerkaufsdatei = img.kategorie === "Ohne Wasserzeichen";
+  const isVerkaufsdatei = !img.wasserzeichen;
 
   const sichtbarLabel = el("label", { className: "image-visible-toggle" });
   const sichtbarCheckbox = el("input", {
@@ -90,30 +87,39 @@ function renderImageCard(img) {
     });
   }
 
-  const kategorieSelectEl = el("select", { className: "category-select" });
-  imageKategorien.forEach((k) => {
-    kategorieSelectEl.appendChild(el("option", { value: k, textContent: k, selected: k === img.kategorie }));
-  });
-  kategorieSelectEl.addEventListener("change", async () => {
-    const body = { kategorie: kategorieSelectEl.value };
+  const wasserzeichenSelectEl = el("select", { className: "category-select" });
+  wasserzeichenSelectEl.appendChild(el("option", { value: "true", textContent: "Mit Wasserzeichen", selected: !!img.wasserzeichen }));
+  wasserzeichenSelectEl.appendChild(el("option", { value: "false", textContent: "Ohne Wasserzeichen", selected: !img.wasserzeichen }));
+
+  const hintergrundLabel = el("label", { className: "hintergrund-toggle" });
+  const hintergrundCheckbox = el("input", { type: "checkbox", checked: !!img.hintergrundVariante });
+  hintergrundLabel.append(hintergrundCheckbox, document.createTextNode(" Hintergrund-Variante"));
+
+  async function patchEigenschaften() {
+    const body = {
+      wasserzeichen: wasserzeichenSelectEl.value === "true",
+      hintergrundVariante: hintergrundCheckbox.checked,
+    };
     // Verkaufsdatei darf nie als sichtbar markiert bleiben - direkt mit korrigieren.
-    if (kategorieSelectEl.value === "Ohne Wasserzeichen") body.sichtbar = false;
+    if (!body.wasserzeichen) body.sichtbar = false;
     await fetch(`/api/admin/designs/${designId}/images/${img.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     loadImages();
-  });
+  }
+  wasserzeichenSelectEl.addEventListener("change", patchEigenschaften);
+  hintergrundCheckbox.addEventListener("change", patchEigenschaften);
 
-  const verkaufHinweis =
-    img.kategorie === "Ohne Wasserzeichen"
-      ? el("p", { className: "kategorie-verkauf", textContent: "🛒 Verkaufsdatei" })
-      : null;
+  const verkaufHinweis = isVerkaufsdatei
+    ? el("p", { className: "kategorie-verkauf", textContent: "🛒 Verkaufsdatei" })
+    : null;
 
   return el("div", { className: "image-card" }, [
     el("img", { src: img.image, alt: img.bezeichnung || img.kategorie }),
-    kategorieSelectEl,
+    wasserzeichenSelectEl,
+    hintergrundLabel,
     verkaufHinweis,
     img.bezeichnung ? el("p", { textContent: img.bezeichnung }) : null,
     img.qualityWarning ? el("p", { className: "quality-warning", textContent: `⚠️ ${img.qualityWarning}` }) : null,
@@ -163,15 +169,9 @@ async function init() {
     return;
   }
 
-  const [configRes, designsRes] = await Promise.all([fetch("/api/config"), fetch("/api/admin/designs")]);
-  const config = await configRes.json();
+  const designsRes = await fetch("/api/admin/designs");
   const designs = await designsRes.json();
   const design = designs.find((d) => d.id === designId);
-
-  imageKategorien = config.imageKategorien;
-  imageKategorien.forEach((k) => {
-    kategorieSelect.appendChild(el("option", { value: k, textContent: k }));
-  });
 
   titleEl.textContent = design ? `Bilder verwalten – ${design.name}` : "Bilder verwalten";
 

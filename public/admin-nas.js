@@ -3,6 +3,11 @@ const listEl = document.getElementById("nas-list");
 
 let currentPath = "";
 
+const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".avif"];
+function isImageFile(name) {
+  return IMAGE_EXTENSIONS.some((ext) => name.toLowerCase().endsWith(ext));
+}
+
 function el(tag, props, children) {
   const node = document.createElement(tag);
   Object.assign(node, props);
@@ -56,9 +61,18 @@ async function navigate(newPath) {
     } else {
       const row = el("a", {
         className: "nas-row nas-file",
-        textContent: `📄 ${entry.name}`,
         href: `/api/admin/nas-browse/download?path=${encodeURIComponent(entryPath)}`,
       });
+      if (isImageFile(entry.name)) {
+        row.appendChild(el("img", {
+          className: "nas-thumb",
+          src: `/api/admin/nas-browse/view?path=${encodeURIComponent(entryPath)}`,
+          alt: "",
+        }));
+      } else {
+        row.appendChild(el("span", { textContent: "📄" }));
+      }
+      row.appendChild(document.createTextNode(` ${entry.name}`));
       listEl.appendChild(row);
     }
   });

@@ -35,11 +35,19 @@
       </div>
       <label for="image-file">Bilddatei(en)</label>
       <input type="file" id="image-file" name="images" accept="image/png,image/jpeg,image/webp,image/avif" multiple required>
-      <p class="field-hint">Mehrere Dateien möglich – alle bekommen dieselbe Kategorie, die Bezeichnung wird bei mehreren Dateien automatisch durchnummeriert.</p>
+      <p class="field-hint">Mehrere Dateien möglich – alle bekommen dieselben Eigenschaften, die Bezeichnung wird bei mehreren Dateien automatisch durchnummeriert.</p>
       <div id="image-file-preview" class="file-preview"></div>
 
-      <label for="image-kategorie">Kategorie</label>
-      <select id="image-kategorie" name="kategorie" required></select>
+      <label for="image-wasserzeichen">Wasserzeichen</label>
+      <select id="image-wasserzeichen" name="wasserzeichen" required>
+        <option value="true">Mit Wasserzeichen</option>
+        <option value="false">Ohne Wasserzeichen (Verkaufsdatei)</option>
+      </select>
+
+      <label class="checkbox-label">
+        <input type="checkbox" id="image-hintergrund" name="hintergrundVariante" value="true">
+        Hintergrund-Variante
+      </label>
 
       <label for="image-bezeichnung">Bezeichnung (optional)</label>
       <input type="text" id="image-bezeichnung" name="bezeichnung" placeholder="z. B. Heller Hintergrund">

@@ -7,7 +7,15 @@ const DB_FILE = path.join(DATA_DIR, "teddys.db");
 const LEGACY_DESIGNS_FILE = path.join(DATA_DIR, "designs.json");
 const LEGACY_CATEGORIES_FILE = path.join(DATA_DIR, "categories.json");
 
-const IMAGE_KATEGORIE_VALUES = ["Mit Wasserzeichen", "Ohne Wasserzeichen", "Hintergrund-Variante"];
+// Wasserzeichen (ja/nein) und Hintergrund-Variante (ja/nein) sind zwei
+// unabhängige Eigenschaften eines Bilds - kategorieLabel() erzeugt daraus eine
+// lesbare Anzeige-/Ordner-Bezeichnung (u.a. für die sortierte NAS-Ablage).
+function kategorieLabel(wasserzeichen, hintergrundVariante) {
+  if (hintergrundVariante) {
+    return wasserzeichen ? "Hintergrund-Variante (Mit Wasserzeichen)" : "Hintergrund-Variante (Ohne Wasserzeichen)";
+  }
+  return wasserzeichen ? "Mit Wasserzeichen" : "Ohne Wasserzeichen";
+}
 
 const DEFAULT_CATEGORIES = [
   "Tiere",
@@ -54,6 +62,14 @@ db.exec(`
     name TEXT PRIMARY KEY
   );
 
+  CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'offen',
+    createdAt TEXT NOT NULL,
+    erledigtAt TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kunde_name TEXT NOT NULL,
@@ -81,6 +97,8 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
     kategorie TEXT NOT NULL,
+    wasserzeichen INTEGER NOT NULL DEFAULT 1,
+    hintergrundVariante INTEGER NOT NULL DEFAULT 0,
     bezeichnung TEXT,
     image TEXT NOT NULL,
     sichtbar INTEGER NOT NULL DEFAULT 0,
@@ -99,9 +117,9 @@ db.exec(`
 // fehlenden Spalten nach, also hier defensiv nachziehen.
 function ensureColumn(table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
-  if (!columns.includes(column)) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-  }
+  if (columns.includes(column)) return false;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  return true;
 }
 ensureColumn("designs", "instagramLink", "TEXT");
 ensureColumn("designs", "online", "INTEGER NOT NULL DEFAULT 1");
@@ -109,6 +127,24 @@ ensureColumn("design_images", "qualityWarning", "TEXT");
 ensureColumn("orders", "kunde_instagram", "TEXT");
 ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
+
+// Wasserzeichen und Hintergrund-Variante waren früher eine einzige flache
+// Kategorie ("Mit Wasserzeichen" / "Ohne Wasserzeichen" / "Hintergrund-Variante"),
+// jetzt zwei unabhängige Eigenschaften (es gibt auch Hintergrund-Varianten mit
+// UND ohne Wasserzeichen). ALTER TABLE ADD COLUMN ... DEFAULT setzt bei
+// bestehenden Zeilen erstmal blind den Standardwert (1/0) - hier einmalig aus
+// der alten kategorie-Spalte die tatsächlich korrekten Werte nachziehen.
+const wasserzeichenColumnAdded = ensureColumn("design_images", "wasserzeichen", "INTEGER NOT NULL DEFAULT 1");
+const hintergrundColumnAdded = ensureColumn("design_images", "hintergrundVariante", "INTEGER NOT NULL DEFAULT 0");
+if (wasserzeichenColumnAdded || hintergrundColumnAdded) {
+  const rows = db.prepare("SELECT id, kategorie FROM design_images").all();
+  const update = db.prepare("UPDATE design_images SET wasserzeichen = ?, hintergrundVariante = ? WHERE id = ?");
+  for (const row of rows) {
+    const hintergrund = row.kategorie === "Hintergrund-Variante" ? 1 : 0;
+    const wasserzeichen = row.kategorie === "Ohne Wasserzeichen" ? 0 : 1;
+    update.run(wasserzeichen, hintergrund, row.id);
+  }
+}
 
 migrateFromLegacyJson();
 backfillDesignImages();
@@ -258,11 +294,13 @@ function getDesignImages(designId) {
   return db.prepare("SELECT * FROM design_images WHERE design_id = ? ORDER BY rowid ASC").all(designId);
 }
 
-function addDesignImage({ design_id, kategorie, bezeichnung, image, sichtbar, qualityWarning }) {
+function addDesignImage({ design_id, wasserzeichen, hintergrundVariante, bezeichnung, image, sichtbar, qualityWarning }) {
+  const wz = wasserzeichen ? 1 : 0;
+  const hg = hintergrundVariante ? 1 : 0;
   const info = db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, sichtbar, ist_hauptbild, qualityWarning, createdAt)
-    VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-  `).run(design_id, kategorie, bezeichnung || "", image, sichtbar ? 1 : 0, qualityWarning || null, new Date().toISOString());
+    INSERT INTO design_images (design_id, kategorie, wasserzeichen, hintergrundVariante, bezeichnung, image, sichtbar, ist_hauptbild, qualityWarning, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+  `).run(design_id, kategorieLabel(wz, hg), wz, hg, bezeichnung || "", image, sichtbar ? 1 : 0, qualityWarning || null, new Date().toISOString());
   return db.prepare("SELECT * FROM design_images WHERE id = ?").get(info.lastInsertRowid);
 }
 
@@ -274,7 +312,7 @@ function addDesignImage({ design_id, kategorie, bezeichnung, image, sichtbar, qu
 function replaceDesignImage(imageId, { image, qualityWarning }) {
   const existing = db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
   if (!existing) return null;
-  db.prepare("UPDATE design_images SET image = ?, qualityWarning = ?, driveSynced = 0 WHERE id = ?")
+  db.prepare("UPDATE design_images SET image = ?, qualityWarning = ? WHERE id = ?")
     .run(image, qualityWarning || null, imageId);
   if (existing.ist_hauptbild) {
     db.prepare("UPDATE designs SET image = ? WHERE id = ?").run(image, existing.design_id);
@@ -292,10 +330,13 @@ function setDesignImageVisibility(imageId, sichtbar) {
 // statt "Ohne Wasserzeichen" gewählt) - gibt die alte Zeile mit zurück, damit
 // der Aufrufer die sortierte Ablage (uploads-sorted/) in den neuen
 // Kategorie-Ordner verschieben kann.
-function setDesignImageKategorie(imageId, kategorie) {
+function setDesignImageEigenschaften(imageId, { wasserzeichen, hintergrundVariante }) {
   const existing = db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
   if (!existing) return null;
-  db.prepare("UPDATE design_images SET kategorie = ? WHERE id = ?").run(kategorie, imageId);
+  const wz = wasserzeichen === undefined ? existing.wasserzeichen : (wasserzeichen ? 1 : 0);
+  const hg = hintergrundVariante === undefined ? existing.hintergrundVariante : (hintergrundVariante ? 1 : 0);
+  db.prepare("UPDATE design_images SET wasserzeichen = ?, hintergrundVariante = ?, kategorie = ? WHERE id = ?")
+    .run(wz, hg, kategorieLabel(wz, hg), imageId);
   return { old: existing, updated: db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId) };
 }
 
@@ -321,6 +362,30 @@ function deleteDesignImage(imageId) {
   }
   db.prepare("DELETE FROM design_images WHERE id = ?").run(imageId);
   return target;
+}
+
+// --- Feedback-Notizen (Dashboard) ---
+
+function listFeedback() {
+  return db.prepare("SELECT * FROM feedback ORDER BY (status = 'offen') DESC, rowid DESC").all();
+}
+
+function addFeedback(text) {
+  const info = db.prepare("INSERT INTO feedback (text, status, createdAt) VALUES (?, 'offen', ?)").run(text, new Date().toISOString());
+  return db.prepare("SELECT * FROM feedback WHERE id = ?").get(info.lastInsertRowid);
+}
+
+function setFeedbackStatus(id, status) {
+  const info = db
+    .prepare("UPDATE feedback SET status = ?, erledigtAt = ? WHERE id = ?")
+    .run(status, status === "erledigt" ? new Date().toISOString() : null, id);
+  if (info.changes === 0) return null;
+  return db.prepare("SELECT * FROM feedback WHERE id = ?").get(id);
+}
+
+function deleteFeedback(id) {
+  const info = db.prepare("DELETE FROM feedback WHERE id = ?").run(id);
+  return info.changes > 0;
 }
 
 // --- Kategorien ---
@@ -504,12 +569,15 @@ module.exports = {
   completeOrder,
   updateOrder,
   deleteOrder,
-  IMAGE_KATEGORIE_VALUES,
   getDesignImages,
   addDesignImage,
   replaceDesignImage,
   setDesignImageVisibility,
-  setDesignImageKategorie,
+  setDesignImageEigenschaften,
   setHauptbild,
   deleteDesignImage,
+  listFeedback,
+  addFeedback,
+  setFeedbackStatus,
+  deleteFeedback,
 };
