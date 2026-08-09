@@ -63,11 +63,23 @@ function renderComingSoonHtml() {
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <main style="max-width:560px;margin:4rem auto;text-align:center;padding:0 1.5rem;">
-    ${imageHtml}
-    <h1>Wir bauen gerade an unserer Seite 🧸🎨</h1>
-    <p>Schau bald wieder vorbei!</p>
-    <p><a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a></p>
+  <main style="max-width:700px;margin:4rem auto;padding:0 1.5rem;">
+    <div style="text-align:center;">
+      ${imageHtml}
+      <h1>Wir bauen gerade an unserer Seite 🧸🎨</h1>
+      <p>Schau bald wieder vorbei!</p>
+    </div>
+
+    <section style="display:flex;align-items:center;gap:2rem;flex-wrap:wrap;margin-top:3rem;">
+      <div style="flex:1;min-width:240px;font-family:'Brush Script MT','Segoe Script',cursive;font-size:1.3rem;line-height:1.6;">
+        <p>Hallo, ich bin Teddy (32), KI-Designer. Mein Name ist Programm: Mich findest du als Maskottchen in jedem meiner Designs wieder.</p>
+        <p>Mit meinem Team erstelle ich einzigartige Designs mit Wiedererkennungswert. Wir stehen für Transparenz, Verlässlichkeit und viel Liebe zum Detail – Unikate, von KI inspiriert und von Hand veredelt.</p>
+        <p><strong>Was dich erwartet</strong><br>Exklusive KI-Designs: kreativ, inspiriert und mit Liebe zum Detail verfeinert. Und das ist erst der Anfang – begleite mich auf meiner Reise durch die KI-Welt. Ich bin schon fleißig am Werkeln – schau bald wieder vorbei, hier tut sich einiges.</p>
+      </div>
+      <img src="/images/teddy-mascot.png" alt="Teddy, das Maskottchen" style="width:220px;max-width:40%;height:auto;flex-shrink:0;">
+    </section>
+
+    <p style="text-align:center;margin-top:3rem;"><a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a></p>
   </main>
 </body>
 </html>`;
