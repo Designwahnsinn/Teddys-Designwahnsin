@@ -2,6 +2,8 @@ const form = document.getElementById("upload-form");
 const message = document.getElementById("form-message");
 const categorySelect = document.getElementById("category");
 const nextIdHint = document.getElementById("next-id-hint");
+const imageInput = document.getElementById("image");
+const filePreview = document.getElementById("image-file-preview");
 
 function el(tag, props, children) {
   const node = document.createElement(tag);
@@ -26,6 +28,13 @@ async function loadNextId() {
   nextIdHint.textContent = `Nächste ID: ${data.id}`;
 }
 
+imageInput.addEventListener("change", () => {
+  filePreview.innerHTML = "";
+  [...imageInput.files].forEach((file) => {
+    filePreview.appendChild(el("img", { src: URL.createObjectURL(file), alt: "Vorschau" }));
+  });
+});
+
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   message.textContent = "";
@@ -44,6 +53,7 @@ form.addEventListener("submit", async (e) => {
       message.className = "success";
     }
     form.reset();
+    filePreview.innerHTML = "";
     loadNextId();
   } else {
     const data = await res.json().catch(() => ({}));

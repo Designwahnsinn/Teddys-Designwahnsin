@@ -117,7 +117,10 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // bevor irgendetwas auf Platte geschrieben wird (MIME-Type allein ist spoofbar).
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  // 20 MB pro Datei - bei der geforderten Mindestauflösung (~2362x2362px)
+  // sind hochauflösende PNGs mit Transparenz schnell deutlich größer als
+  // die ursprünglichen 8 MB.
+  limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const ok = ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype);
     cb(ok ? null : new Error("Nur PNG, JPG, WEBP oder AVIF erlaubt"), ok);
@@ -398,12 +401,41 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.single("image"), a
 });
 
 app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
-  const { sichtbar } = req.body;
-  if (typeof sichtbar !== "boolean") {
-    return res.status(400).json({ error: "sichtbar (boolean) ist Pflichtfeld" });
+  const { sichtbar, kategorie } = req.body;
+  if (sichtbar === undefined && kategorie === undefined) {
+    return res.status(400).json({ error: "sichtbar oder kategorie ist Pflichtfeld" });
   }
-  const updated = db.setDesignImageVisibility(req.params.imageId, sichtbar);
-  if (!updated) return res.status(404).json({ error: "Bild nicht gefunden" });
+
+  let updated = null;
+  if (sichtbar !== undefined) {
+    if (typeof sichtbar !== "boolean") {
+      return res.status(400).json({ error: "sichtbar muss ein boolean sein" });
+    }
+    updated = db.setDesignImageVisibility(req.params.imageId, sichtbar);
+    if (!updated) return res.status(404).json({ error: "Bild nicht gefunden" });
+  }
+
+  if (kategorie !== undefined) {
+    if (!db.IMAGE_KATEGORIE_VALUES.includes(kategorie)) {
+      return res.status(400).json({ error: "Ungültige Kategorie" });
+    }
+    const result = db.setDesignImageKategorie(req.params.imageId, kategorie);
+    if (!result) return res.status(404).json({ error: "Bild nicht gefunden" });
+    const { old: previous, updated: afterUpdate } = result;
+    updated = afterUpdate;
+    if (previous.kategorie !== kategorie) {
+      const ext = previous.image.split(".").pop();
+      sortedUploads.removeSorted(req.params.id, previous.kategorie, previous.bezeichnung, ext);
+      sortedUploads.mirrorSorted(
+        path.join(UPLOADS_DIR, path.basename(previous.image)),
+        req.params.id,
+        kategorie,
+        previous.bezeichnung,
+        ext
+      );
+    }
+  }
+
   res.json(updated);
 });
 

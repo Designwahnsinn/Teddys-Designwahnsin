@@ -178,7 +178,15 @@ function migrateFromLegacyJson() {
 // --- Designs ---
 
 function getDesigns() {
-  return db.prepare("SELECT * FROM designs ORDER BY rowid DESC").all();
+  // qualityWarning kommt vom Hauptbild - Auflösungshinweis soll überall
+  // sichtbar sein, wo Designs in einer Liste ausgewählt werden (z.B. Bestell-Wizard),
+  // ohne dass man dafür extra die Bilder-verwalten-Seite pro Design aufrufen muss.
+  return db.prepare(`
+    SELECT designs.*, design_images.qualityWarning AS qualityWarning
+    FROM designs
+    LEFT JOIN design_images ON design_images.design_id = designs.id AND design_images.ist_hauptbild = 1
+    ORDER BY designs.rowid DESC
+  `).all();
 }
 
 function getDesign(id) {
@@ -278,6 +286,17 @@ function setDesignImageVisibility(imageId, sichtbar) {
   const info = db.prepare("UPDATE design_images SET sichtbar = ? WHERE id = ?").run(sichtbar ? 1 : 0, imageId);
   if (info.changes === 0) return null;
   return db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
+}
+
+// Nachträgliche Korrektur der Kategorie (z.B. versehentlich "Mit Wasserzeichen"
+// statt "Ohne Wasserzeichen" gewählt) - gibt die alte Zeile mit zurück, damit
+// der Aufrufer die sortierte Ablage (uploads-sorted/) in den neuen
+// Kategorie-Ordner verschieben kann.
+function setDesignImageKategorie(imageId, kategorie) {
+  const existing = db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
+  if (!existing) return null;
+  db.prepare("UPDATE design_images SET kategorie = ? WHERE id = ?").run(kategorie, imageId);
+  return { old: existing, updated: db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId) };
 }
 
 // Setzt genau ein Bild als Hauptbild (für die Design-Karte/Lightbox) und
@@ -490,6 +509,7 @@ module.exports = {
   addDesignImage,
   replaceDesignImage,
   setDesignImageVisibility,
+  setDesignImageKategorie,
   setHauptbild,
   deleteDesignImage,
 };

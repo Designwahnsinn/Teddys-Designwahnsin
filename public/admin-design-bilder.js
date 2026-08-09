@@ -4,6 +4,10 @@ const gridEl = document.getElementById("image-grid");
 const kategorieSelect = document.getElementById("image-kategorie");
 const uploadForm = document.getElementById("image-upload-form");
 const uploadMessage = document.getElementById("upload-message");
+const fileInput = document.getElementById("image-file");
+const filePreview = document.getElementById("image-file-preview");
+
+let imageKategorien = [];
 
 function el(tag, props, children) {
   const node = document.createElement(tag);
@@ -77,21 +81,41 @@ function renderImageCard(img) {
     });
   }
 
-  const isOhneWasserzeichen = img.kategorie === "Ohne Wasserzeichen";
-  const categoryBadge = el("p", {
-    className: isOhneWasserzeichen ? "category kategorie-verkauf" : "category",
-    textContent: isOhneWasserzeichen ? "🛒 Ohne Wasserzeichen – Verkaufsdatei" : img.kategorie,
+  const kategorieSelectEl = el("select", { className: "category-select" });
+  imageKategorien.forEach((k) => {
+    kategorieSelectEl.appendChild(el("option", { value: k, textContent: k, selected: k === img.kategorie }));
   });
+  kategorieSelectEl.addEventListener("change", async () => {
+    await fetch(`/api/admin/designs/${designId}/images/${img.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kategorie: kategorieSelectEl.value }),
+    });
+    loadImages();
+  });
+
+  const verkaufHinweis =
+    img.kategorie === "Ohne Wasserzeichen"
+      ? el("p", { className: "kategorie-verkauf", textContent: "🛒 Verkaufsdatei" })
+      : null;
 
   return el("div", { className: "image-card" }, [
     el("img", { src: img.image, alt: img.bezeichnung || img.kategorie }),
-    categoryBadge,
+    kategorieSelectEl,
+    verkaufHinweis,
     img.bezeichnung ? el("p", { textContent: img.bezeichnung }) : null,
     img.qualityWarning ? el("p", { className: "quality-warning", textContent: `⚠️ ${img.qualityWarning}` }) : null,
     sichtbarLabel,
     el("div", { className: "card-actions" }, [hauptbildBtn, replaceBtn, replaceInput, deleteBtn]),
   ].filter(Boolean));
 }
+
+fileInput.addEventListener("change", () => {
+  filePreview.innerHTML = "";
+  const file = fileInput.files[0];
+  if (!file) return;
+  filePreview.appendChild(el("img", { src: URL.createObjectURL(file), alt: "Vorschau" }));
+});
 
 uploadForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -104,6 +128,7 @@ uploadForm.addEventListener("submit", async (e) => {
   if (res.ok) {
     const data = await res.json();
     uploadForm.reset();
+    filePreview.innerHTML = "";
     if (data.qualityWarning) {
       uploadMessage.textContent = `Bild hochgeladen. ⚠️ ${data.qualityWarning}`;
       uploadMessage.className = "warning";
@@ -130,7 +155,8 @@ async function init() {
   const designs = await designsRes.json();
   const design = designs.find((d) => d.id === designId);
 
-  config.imageKategorien.forEach((k) => {
+  imageKategorien = config.imageKategorien;
+  imageKategorien.forEach((k) => {
     kategorieSelect.appendChild(el("option", { value: k, textContent: k }));
   });
 

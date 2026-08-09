@@ -164,17 +164,35 @@ async function renderStep2DesignPicker(order) {
   const res = await fetch("/api/admin/designs");
   const designs = (await res.json()).filter((d) => d.status !== "verkauft");
 
+  const searchInput = el("input", {
+    type: "search",
+    className: "wizard-design-search",
+    placeholder: "Design suchen (Name oder ID) …",
+  });
+
   const listEl = el("div", { className: "wizard-design-list" });
   const checkboxes = new Map();
-  designs.forEach((d) => {
+  const rows = designs.map((d) => {
     const checkbox = el("input", { type: "checkbox", value: d.id });
     checkboxes.set(d.id, checkbox);
     const row = el("label", { className: "wizard-design-row" }, [
       checkbox,
       el("img", { src: d.image, alt: d.name }),
       el("span", { textContent: `${d.id} · ${d.name}${d.price != null ? " · " + formatPrice(d.price) : ""}` }),
+      d.qualityWarning
+        ? el("span", { className: "wizard-quality-warning", textContent: "⚠️ Auflösung niedrig", title: d.qualityWarning })
+        : el("span", { className: "wizard-quality-ok", textContent: "✓ Qualität ok" }),
     ]);
+    row.dataset.search = `${d.id} ${d.name}`.toLowerCase();
     listEl.appendChild(row);
+    return row;
+  });
+
+  searchInput.addEventListener("input", () => {
+    const query = searchInput.value.trim().toLowerCase();
+    rows.forEach((row) => {
+      row.hidden = query !== "" && !row.dataset.search.includes(query);
+    });
   });
 
   const errorMsg = el("p", { className: "wizard-error" });
@@ -196,6 +214,7 @@ async function renderStep2DesignPicker(order) {
 
   panelEl.append(
     el("p", { className: "wizard-hint", textContent: "Welche Designs gehören zu dieser Bestellung?" }),
+    searchInput,
     listEl,
     errorMsg,
     continueBtn
