@@ -33,7 +33,16 @@ app.use(
 // sobald die Seite fertig für den Launch ist.
 const SITE_LIVE = process.env.SITE_LIVE === "true";
 const ALLOWED_PATHS_WHILE_NOT_LIVE = ["/impressum.html", "/datenschutz.html", "/style.css"];
-const COMING_SOON_HTML = `<!DOCTYPE html>
+// Passendes Motiv für den Platzhalter ("Baustelle"-Design) - Bild kommt live
+// aus der Datenbank, damit es sich mitändert, falls das Design mal angepasst wird.
+const COMING_SOON_DESIGN_ID = "TD-0001";
+
+function renderComingSoonHtml() {
+  const design = db.getDesign(COMING_SOON_DESIGN_ID);
+  const imageHtml = design
+    ? `<img src="${design.image}" alt="" style="max-width:280px;width:100%;height:auto;margin:0 auto 1.5rem;display:block;">`
+    : "";
+  return `<!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8">
@@ -43,19 +52,25 @@ const COMING_SOON_HTML = `<!DOCTYPE html>
 </head>
 <body>
   <main style="max-width:560px;margin:4rem auto;text-align:center;padding:0 1.5rem;">
+    ${imageHtml}
     <h1>Wir bauen gerade an unserer Seite 🧸🎨</h1>
     <p>Schau bald wieder vorbei!</p>
     <p><a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a></p>
   </main>
 </body>
 </html>`;
+}
 
 if (!SITE_LIVE) {
   app.use((req, res, next) => {
-    if (ALLOWED_PATHS_WHILE_NOT_LIVE.includes(req.path) || req.path.startsWith("/images/")) {
+    if (
+      ALLOWED_PATHS_WHILE_NOT_LIVE.includes(req.path) ||
+      req.path.startsWith("/images/") ||
+      req.path.startsWith("/uploads/")
+    ) {
       return next();
     }
-    res.status(req.path === "/" ? 200 : 404).type("html").send(COMING_SOON_HTML);
+    res.status(req.path === "/" ? 200 : 404).type("html").send(renderComingSoonHtml());
   });
 }
 
