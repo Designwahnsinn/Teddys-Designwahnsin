@@ -33,8 +33,9 @@
           <li>Qualität beim Download: „Beste Qualität" / höchste Stufe wählen</li>
         </ul>
       </div>
-      <label for="image-file">Bilddatei</label>
-      <input type="file" id="image-file" name="image" accept="image/png,image/jpeg,image/webp,image/avif" required>
+      <label for="image-file">Bilddatei(en)</label>
+      <input type="file" id="image-file" name="images" accept="image/png,image/jpeg,image/webp,image/avif" multiple required>
+      <p class="field-hint">Mehrere Dateien möglich – alle bekommen dieselbe Kategorie, die Bezeichnung wird bei mehreren Dateien automatisch durchnummeriert.</p>
       <div id="image-file-preview" class="file-preview"></div>
 
       <label for="image-kategorie">Kategorie</label>

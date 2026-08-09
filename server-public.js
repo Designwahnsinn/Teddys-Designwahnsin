@@ -116,7 +116,15 @@ app.get("/api/designs/:id/images", (req, res) => {
   const design = db.getDesign(req.params.id);
   if (!design || design.status === "verkauft") return res.status(404).json({ error: "Nicht gefunden" });
   res.set("Cache-Control", `public, max-age=${ONE_MINUTE}`);
-  res.json(db.getDesignImages(req.params.id).filter((img) => img.sichtbar));
+  // "Ohne Wasserzeichen" ist die tatsächliche Verkaufsdatei, die Kunden nach
+  // dem Kauf erhalten - die darf unabhängig vom sichtbar-Flag NIEMALS über
+  // die öffentliche Seite einsehbar sein (kein Vertrauen auf die manuelle
+  // Checkbox im Mitarbeiterbereich, das ist eine harte Serverregel).
+  res.json(
+    db
+      .getDesignImages(req.params.id)
+      .filter((img) => img.sichtbar && img.kategorie !== "Ohne Wasserzeichen")
+  );
 });
 
 // Bilddateien haben unveränderliche UUID-Dateinamen -> lange, feste Cache-Zeit

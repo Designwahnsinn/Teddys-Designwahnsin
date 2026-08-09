@@ -28,8 +28,14 @@ async function loadImages() {
 }
 
 function renderImageCard(img) {
+  const isVerkaufsdatei = img.kategorie === "Ohne Wasserzeichen";
+
   const sichtbarLabel = el("label", { className: "image-visible-toggle" });
-  const sichtbarCheckbox = el("input", { type: "checkbox", checked: !!img.sichtbar });
+  const sichtbarCheckbox = el("input", {
+    type: "checkbox",
+    checked: !isVerkaufsdatei && !!img.sichtbar,
+    disabled: isVerkaufsdatei,
+  });
   sichtbarCheckbox.addEventListener("change", async () => {
     await fetch(`/api/admin/designs/${designId}/images/${img.id}`, {
       method: "PATCH",
@@ -37,7 +43,10 @@ function renderImageCard(img) {
       body: JSON.stringify({ sichtbar: sichtbarCheckbox.checked }),
     });
   });
-  sichtbarLabel.append(sichtbarCheckbox, document.createTextNode(" Sichtbar auf Webseite"));
+  sichtbarLabel.append(
+    sichtbarCheckbox,
+    document.createTextNode(isVerkaufsdatei ? " Nie öffentlich sichtbar (Verkaufsdatei)" : " Sichtbar auf Webseite")
+  );
 
   const hauptbildBtn = el("button", {
     className: "hauptbild-btn",
@@ -86,10 +95,13 @@ function renderImageCard(img) {
     kategorieSelectEl.appendChild(el("option", { value: k, textContent: k, selected: k === img.kategorie }));
   });
   kategorieSelectEl.addEventListener("change", async () => {
+    const body = { kategorie: kategorieSelectEl.value };
+    // Verkaufsdatei darf nie als sichtbar markiert bleiben - direkt mit korrigieren.
+    if (kategorieSelectEl.value === "Ohne Wasserzeichen") body.sichtbar = false;
     await fetch(`/api/admin/designs/${designId}/images/${img.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kategorie: kategorieSelectEl.value }),
+      body: JSON.stringify(body),
     });
     loadImages();
   });
@@ -112,9 +124,9 @@ function renderImageCard(img) {
 
 fileInput.addEventListener("change", () => {
   filePreview.innerHTML = "";
-  const file = fileInput.files[0];
-  if (!file) return;
-  filePreview.appendChild(el("img", { src: URL.createObjectURL(file), alt: "Vorschau" }));
+  [...fileInput.files].forEach((file) => {
+    filePreview.appendChild(el("img", { src: URL.createObjectURL(file), alt: "Vorschau" }));
+  });
 });
 
 uploadForm.addEventListener("submit", async (e) => {
@@ -129,11 +141,12 @@ uploadForm.addEventListener("submit", async (e) => {
     const data = await res.json();
     uploadForm.reset();
     filePreview.innerHTML = "";
-    if (data.qualityWarning) {
-      uploadMessage.textContent = `Bild hochgeladen. ⚠️ ${data.qualityWarning}`;
+    const count = data.images.length;
+    if (data.qualityWarnings.length > 0) {
+      uploadMessage.textContent = `${count} Bild${count === 1 ? "" : "er"} hochgeladen. ⚠️ ${data.qualityWarnings.join(" | ")}`;
       uploadMessage.className = "warning";
     } else {
-      uploadMessage.textContent = "Bild hochgeladen.";
+      uploadMessage.textContent = `${count} Bild${count === 1 ? "" : "er"} hochgeladen.`;
       uploadMessage.className = "success";
     }
     loadImages();

@@ -52,7 +52,18 @@ const ALLOWED_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp", "imag
 
 const app = express();
 app.set("trust proxy", 1);
-app.use(helmet());
+app.use(
+  helmet({
+    // Erlaubt die lokale Bild-Vorschau vor dem Hochladen (object URLs haben
+    // das Schema "blob:") - Helmets Standard-CSP (img-src 'self' data:) blockiert das sonst.
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "img-src": ["'self'", "data:", "blob:"],
+      },
+    },
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(
@@ -371,30 +382,40 @@ app.get("/api/admin/designs/:id/images", requireAuth, (req, res) => {
   res.json(db.getDesignImages(req.params.id));
 });
 
-app.post("/api/admin/designs/:id/images", requireAuth, upload.single("image"), async (req, res) => {
+app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10), async (req, res) => {
   const design = db.getDesign(req.params.id);
   if (!design) return res.status(404).json({ error: "Design nicht gefunden" });
 
   const { kategorie, bezeichnung } = req.body;
+  const files = req.files || [];
   if (!kategorie || !db.IMAGE_KATEGORIE_VALUES.includes(kategorie)) {
     return res.status(400).json({ error: "Ungültige Kategorie" });
   }
-  if (!req.file) {
-    return res.status(400).json({ error: "Bild ist Pflichtfeld" });
+  if (files.length === 0) {
+    return res.status(400).json({ error: "Mindestens ein Bild ist Pflichtfeld" });
   }
 
   try {
-    const { filename, qualityWarning } = await persistUploadedImage(req.file);
-    const image = db.addDesignImage({
-      design_id: req.params.id,
-      kategorie,
-      bezeichnung: bezeichnung || "",
-      image: `/uploads/${filename}`,
-      qualityWarning,
-    });
-    const ext = filename.split(".").pop();
-    sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), design.id, kategorie, bezeichnung, ext);
-    res.status(201).json({ ...image, qualityWarning });
+    const images = [];
+    const qualityWarnings = [];
+    for (const [i, file] of files.entries()) {
+      const { filename, qualityWarning } = await persistUploadedImage(file);
+      // Bei mehreren Dateien auf einmal braucht jede eine eigene, unterscheidbare
+      // Bezeichnung, sonst sehen sie sich in der Übersicht/im Dateinamen zum Verwechseln ähnlich.
+      const imageBezeichnung = files.length > 1 ? `${bezeichnung || "Bild"} ${i + 1}` : bezeichnung || "";
+      const image = db.addDesignImage({
+        design_id: req.params.id,
+        kategorie,
+        bezeichnung: imageBezeichnung,
+        image: `/uploads/${filename}`,
+        qualityWarning,
+      });
+      const ext = filename.split(".").pop();
+      sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), design.id, kategorie, imageBezeichnung, ext);
+      images.push(image);
+      if (qualityWarning) qualityWarnings.push(qualityWarning);
+    }
+    res.status(201).json({ images, qualityWarnings });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
   }
