@@ -45,6 +45,26 @@ function renderImageCard(img) {
     loadImages();
   });
 
+  const replaceInput = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp,image/avif", hidden: true });
+  const replaceBtn = el("button", { className: "edit-btn", textContent: "Datei ersetzen" });
+  replaceBtn.addEventListener("click", () => replaceInput.click());
+  replaceInput.addEventListener("change", async () => {
+    if (!replaceInput.files[0]) return;
+    const formData = new FormData();
+    formData.append("image", replaceInput.files[0]);
+    replaceBtn.disabled = true;
+    replaceBtn.textContent = "Wird ersetzt …";
+    const res = await fetch(`/api/admin/designs/${designId}/images/${img.id}/replace`, { method: "POST", body: formData });
+    if (res.ok) {
+      loadImages();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      replaceBtn.disabled = false;
+      replaceBtn.textContent = "Datei ersetzen";
+      alert(data.error || "Fehler beim Ersetzen der Datei.");
+    }
+  });
+
   const deleteBtn = el("button", { className: "delete-btn", textContent: "Löschen" });
   if (img.ist_hauptbild) {
     deleteBtn.disabled = true;
@@ -57,12 +77,19 @@ function renderImageCard(img) {
     });
   }
 
+  const isOhneWasserzeichen = img.kategorie === "Ohne Wasserzeichen";
+  const categoryBadge = el("p", {
+    className: isOhneWasserzeichen ? "category kategorie-verkauf" : "category",
+    textContent: isOhneWasserzeichen ? "🛒 Ohne Wasserzeichen – Verkaufsdatei" : img.kategorie,
+  });
+
   return el("div", { className: "image-card" }, [
     el("img", { src: img.image, alt: img.bezeichnung || img.kategorie }),
-    el("p", { className: "category", textContent: img.kategorie }),
+    categoryBadge,
     img.bezeichnung ? el("p", { textContent: img.bezeichnung }) : null,
+    img.qualityWarning ? el("p", { className: "quality-warning", textContent: `⚠️ ${img.qualityWarning}` }) : null,
     sichtbarLabel,
-    el("div", { className: "card-actions" }, [hauptbildBtn, deleteBtn]),
+    el("div", { className: "card-actions" }, [hauptbildBtn, replaceBtn, replaceInput, deleteBtn]),
   ].filter(Boolean));
 }
 

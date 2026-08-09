@@ -13,7 +13,6 @@
     "express-rate-limit": "^7.4.0",
     "express-session": "^1.18.0",
     "file-type": "^16.5.4",
-    "googleapis": "^174.0.1",
     "helmet": "^7.1.0",
     "image-size": "^2.0.2",
     "multer": "^2.0.0"

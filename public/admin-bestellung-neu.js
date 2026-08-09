@@ -65,6 +65,37 @@ function renderProgress(order) {
   });
 }
 
+// Lädt für jedes Design der Bestellung die Verkaufsdatei ("Ohne Wasserzeichen")
+// als direkten Download-Link, mit Fallback auf den Drive-Link, falls noch
+// keine Verkaufsdatei hochgeladen wurde.
+async function loadDownloadLinks(order, listEl) {
+  for (const d of order.designs) {
+    const li = el("li", {}, [el("span", { textContent: `${d.id} · ${d.name}: ` })]);
+    listEl.appendChild(li);
+    try {
+      const res = await fetch(`/api/admin/designs/${d.id}/images`);
+      const images = res.ok ? await res.json() : [];
+      const sale = images.find((img) => img.kategorie === "Ohne Wasserzeichen");
+
+      if (sale) {
+        li.appendChild(el("a", {
+          className: "download-link",
+          href: `/api/admin/designs/${d.id}/images/${sale.id}/download`,
+          textContent: "⬇️ Verkaufsdatei herunterladen (ohne Wasserzeichen)",
+        }));
+      } else {
+        li.appendChild(el("span", { className: "muted", textContent: "⚠️ Keine Datei ohne Wasserzeichen hinterlegt" }));
+      }
+      if (d.driveLink) {
+        li.appendChild(document.createTextNode(" · "));
+        li.appendChild(el("a", { href: d.driveLink, target: "_blank", rel: "noopener", textContent: "📁 Drive öffnen" }));
+      }
+    } catch {
+      li.appendChild(el("span", { className: "muted", textContent: "Fehler beim Laden der Bilder" }));
+    }
+  }
+}
+
 async function fetchOrder(id) {
   const res = await fetch(`/api/admin/orders/${id}`);
   if (!res.ok) throw new Error("Bestellung nicht gefunden");
@@ -209,19 +240,15 @@ function renderStepAction(order, stepKey) {
       el("button", { type: "button", textContent: "Rechnung erstellt – weiter", onclick: () => runStep() })
     );
   } else if (stepKey === "schritt_download") {
+    const listEl = el("ul", { className: "download-list" });
     panelEl.append(
       el("h2", { textContent: "Schritt 4 · Design(s) herunterladen" }),
-      el("ul", {}, order.designs.map((d) =>
-        el("li", {}, [
-          el("span", { textContent: `${d.id} · ${d.name}: ` }),
-          d.driveLink
-            ? el("a", { href: d.driveLink, target: "_blank", rel: "noopener", textContent: "📁 Originaldatei öffnen" })
-            : el("span", { className: "muted", textContent: "kein Drive-Link hinterlegt" }),
-        ])
-      )),
+      el("p", { className: "wizard-hint", textContent: "Lädt die Datei direkt herunter, um sie an die E-Mail/WhatsApp-Nachricht anzuhängen." }),
+      listEl,
       errorMsg,
       el("button", { type: "button", textContent: "Heruntergeladen – weiter", onclick: () => runStep() })
     );
+    loadDownloadLinks(order, listEl);
   } else if (stepKey === "schritt_email_vorbereitet") {
     const designNames = order.designs.map((d) => d.name).join(", ");
     const wantsWhatsapp = order.kontakt_praeferenz === "WhatsApp" && order.kunde_whatsapp;

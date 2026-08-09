@@ -83,6 +83,9 @@
   cursor: pointer;
 }
 .field-hint { font-size: 0.78rem; color: var(--muted); margin-top: -0.5rem; }
+.next-id-hint { font-size: 0.85rem; color: var(--muted); margin: -0.4rem 0 0.4rem; }
+.online-toggle-field label { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+.online-toggle-field input { width: auto; }
 #form-message, #upload-message { font-size: 0.9rem; }
 #form-message.error, #upload-message.error { color: #c0392b; }
 #form-message.success, #upload-message.success { color: #2d7a4f; }
@@ -105,6 +108,7 @@
   gap: 1.5rem;
 }
 .admin-card {
+  position: relative;
   background: var(--bg-alt);
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -117,6 +121,85 @@
 .admin-card h3 { font-size: 1rem; margin-bottom: 0.3rem; }
 .admin-card p { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.5rem; }
 .admin-card .drive-link { font-size: 0.8rem; }
+.admin-card .select-checkbox {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  width: 20px;
+  height: 20px;
+  z-index: 1;
+  cursor: pointer;
+}
+.sync-badge { font-size: 0.78rem; font-weight: 600; }
+.sync-badge.sync-ok { color: #2d7a4f; }
+.sync-badge.sync-pending { color: var(--muted); }
+
+.design-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.design-filters { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.design-filters select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  background: #fff;
+}
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+}
+.bulk-toolbar button {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.bulk-toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+.bulk-toolbar button.delete-btn { background: #c0392b; color: #fff; border-color: #c0392b; }
+.admin-empty { color: var(--muted); padding: 1.5rem 0; }
+
+/* NAS-Ordner-Browser */
+.nas-breadcrumb { font-size: 0.9rem; margin-bottom: 1rem; }
+.nas-breadcrumb a { color: var(--accent); text-decoration: none; }
+.nas-breadcrumb a:hover { text-decoration: underline; }
+.nas-list {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.nas-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 1rem;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.nas-row:last-child { border-bottom: none; }
+.nas-row:hover { background: rgba(47, 174, 74, 0.06); }
+.nas-row.nas-dir { font-weight: 600; }
 .admin-card .card-actions {
   display: flex;
   gap: 0.5rem;
@@ -124,7 +207,7 @@
   flex-wrap: wrap;
   margin-top: 0.5rem;
 }
-.status-select {
+.status-select, .online-select {
   padding: 0.3rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -295,6 +378,17 @@
 .wizard-panel button:hover { opacity: 0.9; }
 .wizard-panel button.delete-btn { background: #c0392b; }
 .wizard-hint { color: var(--muted); font-size: 0.9rem; }
+.download-list li { margin-bottom: 0.4rem; }
+.download-link {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+.download-link:hover { opacity: 0.9; }
 .wizard-error { color: #c0392b; font-size: 0.85rem; min-height: 1.2em; }
 
 .wizard-panel > label {
@@ -378,3 +472,23 @@
 .hauptbild-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .hauptbild-btn:disabled { color: var(--accent); border-color: var(--accent); cursor: default; opacity: 0.8; }
 .image-card .delete-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Verkaufsdatei (ohne Wasserzeichen) deutlich hervorheben - das ist die Datei,
+   die Kunden tatsächlich erhalten, Fehler hier sind besonders kritisch */
+.image-card .category.kategorie-verkauf {
+  color: #a6660b;
+  background: #fff3d6;
+  display: inline-block;
+  margin: 0.6rem 1rem 0;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+.quality-warning {
+  color: #a6660b;
+  background: #fff8e6;
+  border: 1px solid #f0d896;
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem !important;
+  margin: 0.5rem 1rem !important;
+  font-size: 0.8rem !important;
+}

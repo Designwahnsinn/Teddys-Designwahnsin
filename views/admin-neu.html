@@ -22,6 +22,7 @@
     </div>
 
     <form class="upload-form" id="upload-form">
+      <p class="next-id-hint" id="next-id-hint"></p>
       <div>
         <label for="name">Name</label>
         <input type="text" id="name" name="name" required>
@@ -46,6 +47,12 @@
           <option value="verkauft">verkauft</option>
         </select>
       </div>
+      <div class="online-toggle-field">
+        <label>
+          <input type="checkbox" id="online" name="online" checked>
+          Online (auf der Webseite sichtbar)
+        </label>
+      </div>
       <div>
         <label for="kaufLink">Kauf-Link (optional, z.B. Gumroad)</label>
         <input type="url" id="kaufLink" name="kaufLink" placeholder="https://…">
@@ -68,8 +75,9 @@
         </ul>
       </div>
       <div>
-        <label for="image">Vorschaubild (PNG, JPG, WEBP, AVIF)</label>
-        <input type="file" id="image" name="image" accept="image/png,image/jpeg,image/webp,image/avif" required>
+        <label for="image">Bild(er) (PNG, JPG, WEBP, AVIF)</label>
+        <input type="file" id="image" name="images" accept="image/png,image/jpeg,image/webp,image/avif" multiple required>
+        <p class="field-hint">Mehrere Dateien möglich – die erste wird das Hauptbild, weitere werden als zusätzliche Bild-Varianten gespeichert (später unter „Bilder" bearbeitbar).</p>
       </div>
       <button type="submit">Design hochladen</button>
       <p id="form-message"></p>

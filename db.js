@@ -45,6 +45,7 @@ db.exec(`
     driveLink TEXT,
     instagramLink TEXT,
     image TEXT NOT NULL,
+    online INTEGER NOT NULL DEFAULT 1,
     verkaufszaehler INTEGER NOT NULL DEFAULT 0,
     createdAt TEXT NOT NULL
   );
@@ -84,6 +85,7 @@ db.exec(`
     image TEXT NOT NULL,
     sichtbar INTEGER NOT NULL DEFAULT 0,
     ist_hauptbild INTEGER NOT NULL DEFAULT 0,
+    qualityWarning TEXT,
     createdAt TEXT NOT NULL
   );
 
@@ -102,6 +104,8 @@ function ensureColumn(table, column, definition) {
   }
 }
 ensureColumn("designs", "instagramLink", "TEXT");
+ensureColumn("designs", "online", "INTEGER NOT NULL DEFAULT 1");
+ensureColumn("design_images", "qualityWarning", "TEXT");
 ensureColumn("orders", "kunde_instagram", "TEXT");
 ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
@@ -193,8 +197,8 @@ function nextId() {
 
 function addDesign(design) {
   db.prepare(`
-    INSERT INTO designs (id, name, description, category, price, status, kaufLink, driveLink, instagramLink, image, verkaufszaehler, createdAt)
-    VALUES (@id, @name, @description, @category, @price, @status, @kaufLink, @driveLink, @instagramLink, @image, 0, @createdAt)
+    INSERT INTO designs (id, name, description, category, price, status, kaufLink, driveLink, instagramLink, image, online, verkaufszaehler, createdAt)
+    VALUES (@id, @name, @description, @category, @price, @status, @kaufLink, @driveLink, @instagramLink, @image, @online, 0, @createdAt)
   `).run({
     id: design.id,
     name: design.name,
@@ -206,16 +210,17 @@ function addDesign(design) {
     driveLink: design.driveLink || "",
     instagramLink: design.instagramLink || "",
     image: design.image,
+    online: design.online === undefined ? 1 : (design.online ? 1 : 0),
     createdAt: design.createdAt,
   });
   db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, sichtbar, ist_hauptbild, createdAt)
-    VALUES (?, 'Mit Wasserzeichen', 'Hauptbild', ?, 1, 1, ?)
-  `).run(design.id, design.image, design.createdAt);
+    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, sichtbar, ist_hauptbild, qualityWarning, createdAt)
+    VALUES (?, 'Mit Wasserzeichen', 'Hauptbild', ?, 1, 1, ?, ?)
+  `).run(design.id, design.image, design.qualityWarning || null, design.createdAt);
   return db.prepare("SELECT * FROM designs WHERE id = ?").get(design.id);
 }
 
-const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "status", "kaufLink", "driveLink", "instagramLink"];
+const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "status", "kaufLink", "driveLink", "instagramLink", "online"];
 
 function updateDesign(id, changes) {
   const existing = db.prepare("SELECT * FROM designs WHERE id = ?").get(id);
@@ -245,12 +250,28 @@ function getDesignImages(designId) {
   return db.prepare("SELECT * FROM design_images WHERE design_id = ? ORDER BY rowid ASC").all(designId);
 }
 
-function addDesignImage({ design_id, kategorie, bezeichnung, image }) {
+function addDesignImage({ design_id, kategorie, bezeichnung, image, sichtbar, qualityWarning }) {
   const info = db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, sichtbar, ist_hauptbild, createdAt)
-    VALUES (?, ?, ?, ?, 0, 0, ?)
-  `).run(design_id, kategorie, bezeichnung || "", image, new Date().toISOString());
+    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, sichtbar, ist_hauptbild, qualityWarning, createdAt)
+    VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+  `).run(design_id, kategorie, bezeichnung || "", image, sichtbar ? 1 : 0, qualityWarning || null, new Date().toISOString());
   return db.prepare("SELECT * FROM design_images WHERE id = ?").get(info.lastInsertRowid);
+}
+
+// Ersetzt die Bilddatei einer bestehenden design_images-Zeile (z.B. falsche
+// Auflösung durch korrekte Datei ersetzen), behält Kategorie/Bezeichnung/
+// Sichtbarkeit/Hauptbild-Flag. Gibt die alte Zeile mit zurück, damit der
+// Aufrufer die alte Datei von der Platte löschen und ggf. designs.image
+// (falls Hauptbild) sowie die sortierte Ablage aktualisieren kann.
+function replaceDesignImage(imageId, { image, qualityWarning }) {
+  const existing = db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
+  if (!existing) return null;
+  db.prepare("UPDATE design_images SET image = ?, qualityWarning = ?, driveSynced = 0 WHERE id = ?")
+    .run(image, qualityWarning || null, imageId);
+  if (existing.ist_hauptbild) {
+    db.prepare("UPDATE designs SET image = ? WHERE id = ?").run(image, existing.design_id);
+  }
+  return { old: existing, updated: db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId) };
 }
 
 function setDesignImageVisibility(imageId, sichtbar) {
@@ -467,6 +488,7 @@ module.exports = {
   IMAGE_KATEGORIE_VALUES,
   getDesignImages,
   addDesignImage,
+  replaceDesignImage,
   setDesignImageVisibility,
   setHauptbild,
   deleteDesignImage,

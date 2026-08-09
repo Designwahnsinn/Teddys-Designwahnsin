@@ -1,7 +1,15 @@
 const cardsEl = document.getElementById("admin-cards");
+const emptyEl = document.getElementById("admin-empty");
+const categoryFilterEl = document.getElementById("filter-category");
+const onlineFilterEl = document.getElementById("filter-online");
+const sortEl = document.getElementById("sort-designs");
+const bulkToolbarEl = document.getElementById("bulk-toolbar");
+const bulkCountEl = document.getElementById("bulk-count");
 
 const STATUS_VALUES = ["verfügbar", "exklusiv", "verkauft"];
 let categories = [];
+let allDesigns = [];
+const selectedIds = new Set();
 
 function el(tag, props, children) {
   const node = document.createElement(tag);
@@ -23,6 +31,12 @@ function renderCardView(d, body) {
   });
   statusSelect.dataset.id = d.id;
 
+  const onlineSelect = el("select", { className: "online-select" });
+  [["1", "Online"], ["0", "Offline"]].forEach(([value, label]) => {
+    onlineSelect.appendChild(el("option", { value, textContent: label, selected: Boolean(d.online) === (value === "1") }));
+  });
+  onlineSelect.dataset.id = d.id;
+
   const editBtn = el("button", { className: "edit-btn", textContent: "Bearbeiten" });
   editBtn.addEventListener("click", () => renderCardEdit(d, body));
 
@@ -42,7 +56,7 @@ function renderCardView(d, body) {
       el("a", { href: d.driveLink, target: "_blank", rel: "noopener", textContent: "📁 Originaldatei auf Drive" }),
     ]));
   }
-  children.push(el("div", { className: "card-actions" }, [statusSelect, editBtn, imagesLink, deleteBtn]));
+  children.push(el("div", { className: "card-actions" }, [statusSelect, onlineSelect, editBtn, imagesLink, deleteBtn]));
 
   body.append(...children);
 }
@@ -80,7 +94,8 @@ function renderCardEdit(d, body) {
     });
     if (res.ok) {
       const updated = await res.json();
-      renderCardView(updated, body);
+      Object.assign(d, updated);
+      renderCardView(d, body);
     } else {
       const data = await res.json().catch(() => ({}));
       errorMsg.textContent = data.error || "Fehler beim Speichern.";
@@ -104,17 +119,60 @@ function renderCardEdit(d, body) {
   );
 }
 
-async function loadDesigns() {
-  const res = await fetch("/api/admin/designs");
-  const designs = await res.json();
+function sortedFilteredDesigns() {
+  const categoryFilter = categoryFilterEl.value;
+  const onlineFilter = onlineFilterEl.value;
+
+  let list = allDesigns.filter((d) => {
+    const matchesCategory = categoryFilter === "alle" || d.category === categoryFilter;
+    const matchesOnline =
+      onlineFilter === "alle" ||
+      (onlineFilter === "online" && Boolean(d.online)) ||
+      (onlineFilter === "offline" && !d.online);
+    return matchesCategory && matchesOnline;
+  });
+
+  list = [...list];
+  if (sortEl.value === "kategorie") {
+    list.sort((a, b) => a.category.localeCompare(b.category, "de") || a.name.localeCompare(b.name, "de"));
+  } else if (sortEl.value === "name") {
+    list.sort((a, b) => a.name.localeCompare(b.name, "de"));
+  }
+  // "neueste" entspricht der vom Server gelieferten Reihenfolge (neueste zuerst)
+
+  return list;
+}
+
+function updateBulkToolbar() {
+  bulkToolbarEl.hidden = selectedIds.size === 0;
+  bulkCountEl.textContent = `${selectedIds.size} ausgewählt`;
+}
+
+function renderDesigns() {
+  const designs = sortedFilteredDesigns();
   cardsEl.innerHTML = "";
+  emptyEl.hidden = designs.length > 0;
+
   designs.forEach((d) => {
+    const checkbox = el("input", { type: "checkbox", className: "select-checkbox", checked: selectedIds.has(d.id) });
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) selectedIds.add(d.id);
+      else selectedIds.delete(d.id);
+      updateBulkToolbar();
+    });
+
     const img = el("img", { src: d.image, alt: d.name });
     const body = el("div", { className: "admin-card-body" });
     renderCardView(d, body);
-    const card = el("div", { className: "admin-card" }, [img, body]);
+    const card = el("div", { className: "admin-card" }, [checkbox, img, body]);
     cardsEl.appendChild(card);
   });
+}
+
+async function loadDesigns() {
+  const res = await fetch("/api/admin/designs");
+  allDesigns = await res.json();
+  renderDesigns();
 }
 
 cardsEl.addEventListener("click", async (e) => {
@@ -126,19 +184,62 @@ cardsEl.addEventListener("click", async (e) => {
 });
 
 cardsEl.addEventListener("change", async (e) => {
-  if (!e.target.classList.contains("status-select")) return;
-  const id = e.target.dataset.id;
-  await fetch(`/api/admin/designs/${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status: e.target.value }),
-  });
+  if (e.target.classList.contains("status-select")) {
+    const id = e.target.dataset.id;
+    await fetch(`/api/admin/designs/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: e.target.value }),
+    });
+  } else if (e.target.classList.contains("online-select")) {
+    const id = e.target.dataset.id;
+    await fetch(`/api/admin/designs/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ online: e.target.value === "1" }),
+    });
+    const design = allDesigns.find((d) => d.id === id);
+    if (design) design.online = e.target.value === "1";
+  }
 });
+
+document.getElementById("bulk-online").addEventListener("click", () => bulkSetOnline(true));
+document.getElementById("bulk-offline").addEventListener("click", () => bulkSetOnline(false));
+document.getElementById("bulk-delete").addEventListener("click", async () => {
+  if (!confirm(`${selectedIds.size} Design(s) wirklich unwiderruflich löschen?`)) return;
+  await Promise.all([...selectedIds].map((id) => fetch(`/api/admin/designs/${id}`, { method: "DELETE" })));
+  selectedIds.clear();
+  updateBulkToolbar();
+  loadDesigns();
+});
+
+async function bulkSetOnline(online) {
+  await Promise.all(
+    [...selectedIds].map((id) =>
+      fetch(`/api/admin/designs/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ online }),
+      })
+    )
+  );
+  selectedIds.clear();
+  updateBulkToolbar();
+  loadDesigns();
+}
+
+categoryFilterEl.addEventListener("change", renderDesigns);
+onlineFilterEl.addEventListener("change", renderDesigns);
+sortEl.addEventListener("change", renderDesigns);
 
 async function init() {
   const res = await fetch("/api/config");
   const config = await res.json();
   categories = config.categories;
+
+  categoryFilterEl.appendChild(el("option", { value: "alle", textContent: "Alle Kategorien" }));
+  categories.forEach((c) => categoryFilterEl.appendChild(el("option", { value: c, textContent: c })));
+
   loadDesigns();
 }
 

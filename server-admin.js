@@ -9,7 +9,6 @@ const rateLimit = require("express-rate-limit");
 const FileType = require("file-type");
 const { imageSize } = require("image-size");
 const db = require("./db");
-const drive = require("./drive");
 const sortedUploads = require("./sorted-uploads");
 
 const PORT = process.env.ADMIN_PORT || 3001;
@@ -153,9 +152,9 @@ async function persistUploadedImage(file) {
   return { filename, mime: detected.mime, qualityWarning: checkImageQuality(file.buffer) };
 }
 
-// Sicherer Dateiname für Google Drive - keine Pfad-/Sonderzeichen aus
+// Sicherer Dateiname für Downloads - keine Pfad-/Sonderzeichen aus
 // Nutzereingaben (Design-Name, Bezeichnung) landen ungefiltert im Dateinamen.
-function safeDriveNamePart(text) {
+function safeFileNamePart(text) {
   return text.replace(/[\\/:*?"<>|]/g, "").trim();
 }
 
@@ -215,6 +214,10 @@ app.get("/mitarbeiter/designs/bilder", requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, "views", "admin-design-bilder.html"));
 });
 
+app.get("/mitarbeiter/nas", requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, "views", "admin-nas.html"));
+});
+
 // Wird von admin-designs.js / admin-neu.js / admin-kategorien.js für die
 // Kategorien-Auswahl gebraucht (gleiche Form wie beim öffentlichen /api/config)
 app.get("/api/config", requireAuth, (req, res) => {
@@ -230,10 +233,16 @@ app.get("/api/admin/designs", requireAuth, (req, res) => {
   res.json(db.getDesigns());
 });
 
-app.post("/api/admin/designs", requireAuth, upload.single("image"), async (req, res) => {
+// Zeigt auf der "Design hochladen"-Seite an, welche ID als nächstes vergeben wird
+app.get("/api/admin/designs/next-id", requireAuth, (req, res) => {
+  res.json({ id: db.nextId() });
+});
+
+app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (req, res) => {
   const { name, description, category, price, status, kaufLink, driveLink, instagramLink } = req.body;
-  if (!name || !category || !req.file) {
-    return res.status(400).json({ error: "Name, Kategorie und Bild sind Pflichtfelder" });
+  const files = req.files || [];
+  if (!name || !category || files.length === 0) {
+    return res.status(400).json({ error: "Name, Kategorie und mindestens ein Bild sind Pflichtfelder" });
   }
   if (!db.getCategories().includes(category)) {
     return res.status(400).json({ error: "Ungültige Kategorie" });
@@ -243,7 +252,8 @@ app.post("/api/admin/designs", requireAuth, upload.single("image"), async (req, 
   }
 
   try {
-    const { filename, mime, qualityWarning } = await persistUploadedImage(req.file);
+    const [mainFile, ...extraFiles] = files;
+    const { filename, qualityWarning } = await persistUploadedImage(mainFile);
     const design = db.addDesign({
       id: db.nextId(),
       name,
@@ -255,19 +265,37 @@ app.post("/api/admin/designs", requireAuth, upload.single("image"), async (req, 
       driveLink: driveLink || "",
       instagramLink: instagramLink || "",
       image: `/uploads/${filename}`,
+      online: req.body.online !== undefined,
+      qualityWarning,
       createdAt: new Date().toISOString(),
     });
     const ext = filename.split(".").pop();
-    drive.syncToDrive(path.join(UPLOADS_DIR, filename), `${design.id} - ${safeDriveNamePart(name)}.${ext}`, mime);
     sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), design.id, "Mit Wasserzeichen", "Hauptbild", ext);
-    res.status(201).json({ ...design, qualityWarning });
+
+    const qualityWarnings = qualityWarning ? [qualityWarning] : [];
+    for (const [i, file] of extraFiles.entries()) {
+      const extra = await persistUploadedImage(file);
+      db.addDesignImage({
+        design_id: design.id,
+        kategorie: "Mit Wasserzeichen",
+        bezeichnung: `Bild ${i + 2}`,
+        image: `/uploads/${extra.filename}`,
+        sichtbar: true,
+        qualityWarning: extra.qualityWarning,
+      });
+      const extraExt = extra.filename.split(".").pop();
+      sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, extra.filename), design.id, "Mit Wasserzeichen", `Bild ${i + 2}`, extraExt);
+      if (extra.qualityWarning) qualityWarnings.push(extra.qualityWarning);
+    }
+
+    res.status(201).json({ ...design, qualityWarnings });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
   }
 });
 
 app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
-  const { name, description, category, price, status, kaufLink, driveLink, instagramLink } = req.body;
+  const { name, description, category, price, status, kaufLink, driveLink, instagramLink, online } = req.body;
 
   const changes = {};
   if (name !== undefined) {
@@ -291,6 +319,7 @@ app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
   if (kaufLink !== undefined) changes.kaufLink = kaufLink;
   if (driveLink !== undefined) changes.driveLink = driveLink;
   if (instagramLink !== undefined) changes.instagramLink = instagramLink;
+  if (online !== undefined) changes.online = Boolean(online) ? 1 : 0;
 
   const updated = db.updateDesign(req.params.id, changes);
   if (!updated) return res.status(404).json({ error: "Nicht gefunden" });
@@ -307,6 +336,20 @@ app.delete("/api/admin/designs/:id", requireAuth, (req, res) => {
   sortedUploads.removeSortedDesign(req.params.id);
 
   res.json({ ok: true });
+});
+
+// Direkter Download einer Bilddatei mit sprechendem Dateinamen - für den
+// Bestell-Wizard (Schritt 4: Datei ans E-Mail-/WhatsApp-Programm anhängen).
+app.get("/api/admin/designs/:id/images/:imageId/download", requireAuth, (req, res) => {
+  const design = db.getDesign(req.params.id);
+  if (!design) return res.status(404).json({ error: "Design nicht gefunden" });
+  const image = db.getDesignImages(req.params.id).find((img) => String(img.id) === req.params.imageId);
+  if (!image) return res.status(404).json({ error: "Bild nicht gefunden" });
+
+  const ext = image.image.split(".").pop();
+  const label = [image.kategorie, image.bezeichnung].filter(Boolean).map(safeFileNamePart).join(" - ");
+  const downloadName = `${design.id} - ${safeFileNamePart(design.name)}${label ? " - " + label : ""}.${ext}`;
+  res.download(path.join(UPLOADS_DIR, path.basename(image.image)), downloadName);
 });
 
 // --- Bild-Varianten pro Design ---
@@ -328,16 +371,15 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.single("image"), a
   }
 
   try {
-    const { filename, mime, qualityWarning } = await persistUploadedImage(req.file);
+    const { filename, qualityWarning } = await persistUploadedImage(req.file);
     const image = db.addDesignImage({
       design_id: req.params.id,
       kategorie,
       bezeichnung: bezeichnung || "",
       image: `/uploads/${filename}`,
+      qualityWarning,
     });
     const ext = filename.split(".").pop();
-    const label = [kategorie, bezeichnung].filter(Boolean).map(safeDriveNamePart).join(" - ");
-    drive.syncToDrive(path.join(UPLOADS_DIR, filename), `${design.id} - ${label}.${ext}`, mime);
     sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), design.id, kategorie, bezeichnung, ext);
     res.status(201).json({ ...image, qualityWarning });
   } catch (err) {
@@ -353,6 +395,28 @@ app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
   const updated = db.setDesignImageVisibility(req.params.imageId, sichtbar);
   if (!updated) return res.status(404).json({ error: "Bild nicht gefunden" });
   res.json(updated);
+});
+
+// Ersetzt die Datei eines bestehenden Bilds (z.B. falsche Auflösung durch
+// korrekten Export ersetzen), ohne Kategorie/Bezeichnung/Sichtbarkeit zu verlieren.
+app.post("/api/admin/designs/:id/images/:imageId/replace", requireAuth, upload.single("image"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Bild ist Pflichtfeld" });
+  try {
+    const { filename, qualityWarning } = await persistUploadedImage(req.file);
+    const result = db.replaceDesignImage(req.params.imageId, { image: `/uploads/${filename}`, qualityWarning });
+    if (!result) return res.status(404).json({ error: "Bild nicht gefunden" });
+
+    const { old, updated } = result;
+    fs.unlink(path.join(UPLOADS_DIR, path.basename(old.image)), () => {});
+    sortedUploads.removeSorted(old.design_id, old.kategorie, old.bezeichnung, old.image.split(".").pop());
+
+    const ext = filename.split(".").pop();
+    sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), old.design_id, old.kategorie, old.bezeichnung, ext);
+
+    res.json(updated);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
 });
 
 app.post("/api/admin/designs/:id/images/:imageId/hauptbild", requireAuth, (req, res) => {
@@ -549,6 +613,50 @@ app.post("/api/public/inquiries", publicCors, inquiryLimiter, (req, res) => {
   const updated = db.setOrderDesigns(order.id, validIds);
 
   res.status(201).json({ ok: true, id: updated.id });
+});
+
+// --- NAS-Ordner-Browser (read-only Ansicht von uploads-sorted/, der Quelle
+// für den Synology-Cloud-Sync nach Google Drive) ---
+const NAS_ROOT = sortedUploads.SORTED_DIR;
+
+// Löst einen vom Client übergebenen relativen Pfad sicher innerhalb von
+// NAS_ROOT auf - verhindert Path-Traversal (z.B. "../../etc") nach außerhalb.
+function resolveNasPath(relativePath) {
+  const target = path.resolve(NAS_ROOT, `.${path.sep}${relativePath || ""}`);
+  if (target !== NAS_ROOT && !target.startsWith(NAS_ROOT + path.sep)) {
+    const err = new Error("Ungültiger Pfad");
+    err.status = 400;
+    throw err;
+  }
+  return target;
+}
+
+app.get("/api/admin/nas-browse", requireAuth, (req, res) => {
+  try {
+    const dir = resolveNasPath(req.query.path || "");
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+      return res.status(404).json({ error: "Ordner nicht gefunden" });
+    }
+    const entries = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .map((e) => ({ name: e.name, type: e.isDirectory() ? "dir" : "file" }))
+      .sort((a, b) => (a.type !== b.type ? (a.type === "dir" ? -1 : 1) : a.name.localeCompare(b.name, "de")));
+    res.json({ path: req.query.path || "", entries });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+});
+
+app.get("/api/admin/nas-browse/download", requireAuth, (req, res) => {
+  try {
+    const target = resolveNasPath(req.query.path || "");
+    if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      return res.status(404).json({ error: "Datei nicht gefunden" });
+    }
+    res.download(target);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => {

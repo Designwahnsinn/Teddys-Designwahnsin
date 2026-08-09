@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NAS-Ordner – Teddys Designwahnsinn</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <main>
+    <div class="admin-header">
+      <div>
+        <a class="admin-nav-link" href="/mitarbeiter/upload">← Dashboard</a>
+        <h1>NAS-Ordner</h1>
+      </div>
+      <div class="admin-header-actions">
+        <form class="logout-form" action="/mitarbeiter/logout" method="POST">
+          <button type="submit">Abmelden</button>
+        </form>
+      </div>
+    </div>
+
+    <p class="wizard-hint">Sortierte Bild-Ablage (<code>uploads-sorted/</code>) – Quelle für den Cloud-Sync von der Synology-NAS zu Google Drive.</p>
+    <nav class="nas-breadcrumb" id="nas-breadcrumb"></nav>
+    <div class="nas-list" id="nas-list"></div>
+  </main>
+
+  <script src="/admin-nas.js"></script>
+</body>
+</html>

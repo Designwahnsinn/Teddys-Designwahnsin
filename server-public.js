@@ -26,6 +26,39 @@ app.use(
   })
 );
 
+// "Baustellen-Modus": solange SITE_LIVE nicht auf "true" steht, sind nur
+// Impressum und Datenschutzerklärung erreichbar (rechtlich nötig, z.B. für
+// den Instagram-Bio-Link) - der Rest der Seite (noch in Entwicklung) zeigt
+// stattdessen einen Platzhalter. Einfach SITE_LIVE=true in der .env setzen,
+// sobald die Seite fertig für den Launch ist.
+const SITE_LIVE = process.env.SITE_LIVE === "true";
+const ALLOWED_PATHS_WHILE_NOT_LIVE = ["/impressum.html", "/datenschutz.html", "/style.css"];
+const COMING_SOON_HTML = `<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teddys Designwahnsinn – bald verfügbar</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main style="max-width:560px;margin:4rem auto;text-align:center;padding:0 1.5rem;">
+    <h1>Wir bauen gerade an unserer Seite 🧸🎨</h1>
+    <p>Schau bald wieder vorbei!</p>
+    <p><a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a></p>
+  </main>
+</body>
+</html>`;
+
+if (!SITE_LIVE) {
+  app.use((req, res, next) => {
+    if (ALLOWED_PATHS_WHILE_NOT_LIVE.includes(req.path) || req.path.startsWith("/images/")) {
+      return next();
+    }
+    res.status(req.path === "/" ? 200 : 404).type("html").send(COMING_SOON_HTML);
+  });
+}
+
 function toPublicDesign(d) {
   // driveLink ist nur für den internen Mitarbeiter-Bereich gedacht
   const { driveLink, ...publicDesign } = d;
@@ -33,9 +66,9 @@ function toPublicDesign(d) {
 }
 
 app.get("/api/designs", (req, res) => {
-  // Verkaufte Designs erscheinen nicht auf der öffentlichen Seite
+  // Verkaufte oder offline gestellte Designs erscheinen nicht auf der öffentlichen Seite
   res.set("Cache-Control", `public, max-age=${ONE_MINUTE}`);
-  res.json(db.getDesigns().filter((d) => d.status !== "verkauft").map(toPublicDesign));
+  res.json(db.getDesigns().filter((d) => d.status !== "verkauft" && d.online).map(toPublicDesign));
 });
 
 app.get("/api/config", (req, res) => {

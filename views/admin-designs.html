@@ -21,6 +21,29 @@
       </div>
     </div>
 
+    <div class="design-toolbar">
+      <div class="design-filters">
+        <select id="filter-category"></select>
+        <select id="filter-online">
+          <option value="alle">Alle (online + offline)</option>
+          <option value="online">Nur online</option>
+          <option value="offline">Nur offline</option>
+        </select>
+        <select id="sort-designs">
+          <option value="neueste">Neueste zuerst</option>
+          <option value="kategorie">Nach Kategorie</option>
+          <option value="name">Nach Name (A-Z)</option>
+        </select>
+      </div>
+      <div class="bulk-toolbar" id="bulk-toolbar" hidden>
+        <span id="bulk-count"></span>
+        <button type="button" id="bulk-online">Online schalten</button>
+        <button type="button" id="bulk-offline">Offline schalten</button>
+        <button type="button" id="bulk-delete" class="delete-btn">Löschen</button>
+      </div>
+    </div>
+
+    <p class="admin-empty" id="admin-empty" hidden>Keine Designs in dieser Ansicht.</p>
     <div class="admin-cards" id="admin-cards"></div>
   </main>
 
