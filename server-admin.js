@@ -166,7 +166,13 @@ function requireAuth(req, res, next) {
 // --- Login ---
 app.get("/mitarbeiter", (req, res) => {
   if (req.session.loggedIn) return res.redirect("/mitarbeiter/upload");
-  res.sendFile(path.join(__dirname, "views", "login.html"));
+  let html = fs.readFileSync(path.join(__dirname, "views", "login.html"), "utf8");
+  // Solange die Seite nicht live ist, soll die Login-Seite keinen Weg zurück
+  // zur öffentlichen Seite anbieten (weder zur echten noch zur Baustellen-Seite).
+  if (process.env.SITE_LIVE !== "true") {
+    html = html.replace(/<a class="back-link"[^>]*>.*?<\/a>\s*/, "");
+  }
+  res.type("html").send(html);
 });
 
 app.post("/mitarbeiter/login", loginLimiter, (req, res) => {
