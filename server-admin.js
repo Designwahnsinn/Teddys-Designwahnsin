@@ -7,7 +7,9 @@ const multer = require("multer");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const FileType = require("file-type");
+const { imageSize } = require("image-size");
 const db = require("./db");
+const drive = require("./drive");
 
 const PORT = process.env.ADMIN_PORT || 3001;
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || "";
@@ -104,6 +106,22 @@ const upload = multer({
   },
 });
 
+// Empfohlene Mindestauflösung für gestochen scharfen Druck: 20x20cm bei
+// 300dpi (Standard-Druckgröße laut Nutzer) = ca. 2362x2362 Pixel.
+const MIN_PRINT_DIMENSION_PX = 2362;
+
+function checkImageQuality(buffer) {
+  try {
+    const { width, height } = imageSize(buffer);
+    if (width < MIN_PRINT_DIMENSION_PX || height < MIN_PRINT_DIMENSION_PX) {
+      return `Auflösung nur ${width}×${height}px - für gestochen scharfen Druck (20×20cm bei 300dpi) werden mind. ${MIN_PRINT_DIMENSION_PX}×${MIN_PRINT_DIMENSION_PX}px empfohlen.`;
+    }
+    return null;
+  } catch {
+    return null; // Auflösung konnte nicht ermittelt werden - Upload trotzdem zulassen
+  }
+}
+
 async function persistUploadedImage(file) {
   const detected = await FileType.fromBuffer(file.buffer);
   if (!detected || !ALLOWED_IMAGE_MIME_TYPES.includes(detected.mime)) {
@@ -113,7 +131,13 @@ async function persistUploadedImage(file) {
   }
   const filename = `${crypto.randomUUID()}.${detected.ext}`;
   fs.writeFileSync(path.join(UPLOADS_DIR, filename), file.buffer);
-  return filename;
+  return { filename, mime: detected.mime, qualityWarning: checkImageQuality(file.buffer) };
+}
+
+// Sicherer Dateiname für Google Drive - keine Pfad-/Sonderzeichen aus
+// Nutzereingaben (Design-Name, Bezeichnung) landen ungefiltert im Dateinamen.
+function safeDriveNamePart(text) {
+  return text.replace(/[\\/:*?"<>|]/g, "").trim();
 }
 
 function requireAuth(req, res, next) {
@@ -168,10 +192,18 @@ app.get("/mitarbeiter/bestellungen/bearbeiten", requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, "views", "admin-bestellung-bearbeiten.html"));
 });
 
+app.get("/mitarbeiter/designs/bilder", requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, "views", "admin-design-bilder.html"));
+});
+
 // Wird von admin-designs.js / admin-neu.js / admin-kategorien.js für die
 // Kategorien-Auswahl gebraucht (gleiche Form wie beim öffentlichen /api/config)
 app.get("/api/config", requireAuth, (req, res) => {
-  res.json({ categories: db.getCategories(), whatsappNumber: WHATSAPP_NUMBER });
+  res.json({
+    categories: db.getCategories(),
+    whatsappNumber: WHATSAPP_NUMBER,
+    imageKategorien: db.IMAGE_KATEGORIE_VALUES,
+  });
 });
 
 // --- Designs (Admin-API) ---
@@ -192,7 +224,7 @@ app.post("/api/admin/designs", requireAuth, upload.single("image"), async (req, 
   }
 
   try {
-    const filename = await persistUploadedImage(req.file);
+    const { filename, mime, qualityWarning } = await persistUploadedImage(req.file);
     const design = db.addDesign({
       id: db.nextId(),
       name,
@@ -206,7 +238,12 @@ app.post("/api/admin/designs", requireAuth, upload.single("image"), async (req, 
       image: `/uploads/${filename}`,
       createdAt: new Date().toISOString(),
     });
-    res.status(201).json(design);
+    drive.syncToDrive(
+      path.join(UPLOADS_DIR, filename),
+      `${design.id} - ${safeDriveNamePart(name)}.${filename.split(".").pop()}`,
+      mime
+    );
+    res.status(201).json({ ...design, qualityWarning });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
   }
@@ -247,10 +284,80 @@ app.delete("/api/admin/designs/:id", requireAuth, (req, res) => {
   const removed = db.deleteDesign(req.params.id);
   if (!removed) return res.status(404).json({ error: "Nicht gefunden" });
 
-  const filePath = path.join(UPLOADS_DIR, path.basename(removed.image));
-  fs.unlink(filePath, () => {});
+  for (const img of removed.allImagePaths) {
+    fs.unlink(path.join(UPLOADS_DIR, path.basename(img)), () => {});
+  }
 
   res.json({ ok: true });
+});
+
+// --- Bild-Varianten pro Design ---
+app.get("/api/admin/designs/:id/images", requireAuth, (req, res) => {
+  if (!db.getDesign(req.params.id)) return res.status(404).json({ error: "Design nicht gefunden" });
+  res.json(db.getDesignImages(req.params.id));
+});
+
+app.post("/api/admin/designs/:id/images", requireAuth, upload.single("image"), async (req, res) => {
+  const design = db.getDesign(req.params.id);
+  if (!design) return res.status(404).json({ error: "Design nicht gefunden" });
+
+  const { kategorie, bezeichnung } = req.body;
+  if (!kategorie || !db.IMAGE_KATEGORIE_VALUES.includes(kategorie)) {
+    return res.status(400).json({ error: "Ungültige Kategorie" });
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: "Bild ist Pflichtfeld" });
+  }
+
+  try {
+    const { filename, mime, qualityWarning } = await persistUploadedImage(req.file);
+    const image = db.addDesignImage({
+      design_id: req.params.id,
+      kategorie,
+      bezeichnung: bezeichnung || "",
+      image: `/uploads/${filename}`,
+    });
+    const label = [kategorie, bezeichnung].filter(Boolean).map(safeDriveNamePart).join(" - ");
+    drive.syncToDrive(
+      path.join(UPLOADS_DIR, filename),
+      `${design.id} - ${label}.${filename.split(".").pop()}`,
+      mime
+    );
+    res.status(201).json({ ...image, qualityWarning });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+});
+
+app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
+  const { sichtbar } = req.body;
+  if (typeof sichtbar !== "boolean") {
+    return res.status(400).json({ error: "sichtbar (boolean) ist Pflichtfeld" });
+  }
+  const updated = db.setDesignImageVisibility(req.params.imageId, sichtbar);
+  if (!updated) return res.status(404).json({ error: "Bild nicht gefunden" });
+  res.json(updated);
+});
+
+app.post("/api/admin/designs/:id/images/:imageId/hauptbild", requireAuth, (req, res) => {
+  try {
+    const updated = db.setHauptbild(req.params.id, req.params.imageId);
+    if (!updated) return res.status(404).json({ error: "Bild nicht gefunden" });
+    res.json(updated);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
+  try {
+    const removed = db.deleteDesignImage(req.params.imageId);
+    if (!removed) return res.status(404).json({ error: "Bild nicht gefunden" });
+    fs.unlink(path.join(UPLOADS_DIR, path.basename(removed.image)), () => {});
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
 });
 
 // --- Kategorien-Verwaltung ---

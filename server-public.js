@@ -43,6 +43,13 @@ app.get("/api/config", (req, res) => {
   res.json({ categories: db.getCategories(), whatsappNumber: WHATSAPP_NUMBER });
 });
 
+app.get("/api/designs/:id/images", (req, res) => {
+  const design = db.getDesign(req.params.id);
+  if (!design || design.status === "verkauft") return res.status(404).json({ error: "Nicht gefunden" });
+  res.set("Cache-Control", `public, max-age=${ONE_MINUTE}`);
+  res.json(db.getDesignImages(req.params.id).filter((img) => img.sichtbar));
+});
+
 // Bilddateien haben unveränderliche UUID-Dateinamen -> lange, feste Cache-Zeit
 app.use(
   "/uploads",

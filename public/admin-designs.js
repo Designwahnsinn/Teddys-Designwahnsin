@@ -26,6 +26,8 @@ function renderCardView(d, body) {
   const editBtn = el("button", { className: "edit-btn", textContent: "Bearbeiten" });
   editBtn.addEventListener("click", () => renderCardEdit(d, body));
 
+  const imagesLink = el("a", { className: "edit-btn", textContent: "🖼️ Bilder", href: `/mitarbeiter/designs/bilder?id=${d.id}` });
+
   const deleteBtn = el("button", { className: "delete-btn", textContent: "Löschen" });
   deleteBtn.dataset.id = d.id;
 

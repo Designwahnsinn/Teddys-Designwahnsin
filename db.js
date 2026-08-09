@@ -7,6 +7,8 @@ const DB_FILE = path.join(DATA_DIR, "teddys.db");
 const LEGACY_DESIGNS_FILE = path.join(DATA_DIR, "designs.json");
 const LEGACY_CATEGORIES_FILE = path.join(DATA_DIR, "categories.json");
 
+const IMAGE_KATEGORIE_VALUES = ["Mit Wasserzeichen", "Ohne Wasserzeichen", "Hintergrund-Variante"];
+
 const DEFAULT_CATEGORIES = [
   "Tiere",
   "Blumen / Natur",
@@ -74,9 +76,21 @@ db.exec(`
     PRIMARY KEY (order_id, design_id)
   );
 
+  CREATE TABLE IF NOT EXISTS design_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+    kategorie TEXT NOT NULL,
+    bezeichnung TEXT,
+    image TEXT NOT NULL,
+    sichtbar INTEGER NOT NULL DEFAULT 0,
+    ist_hauptbild INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_designs_category ON designs(category);
   CREATE INDEX IF NOT EXISTS idx_designs_status ON designs(status);
   CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+  CREATE INDEX IF NOT EXISTS idx_design_images_design ON design_images(design_id);
 `);
 
 // Für bereits existierende Datenbanken: CREATE TABLE IF NOT EXISTS legt keine
@@ -93,6 +107,27 @@ ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
 
 migrateFromLegacyJson();
+backfillDesignImages();
+
+// Jedes Design ohne design_images-Einträge (z.B. alle vor Einführung der
+// Bild-Varianten) bekommt sein bisheriges Einzelbild als "Hauptbild"-Eintrag,
+// damit nichts verschwindet und die neue Bilder-Verwaltung sofort konsistent ist.
+function backfillDesignImages() {
+  const designsWithoutImages = db.prepare(`
+    SELECT d.id, d.image FROM designs d
+    LEFT JOIN design_images di ON di.design_id = d.id
+    WHERE di.id IS NULL
+  `).all();
+
+  const insert = db.prepare(`
+    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, sichtbar, ist_hauptbild, createdAt)
+    VALUES (?, 'Mit Wasserzeichen', 'Hauptbild', ?, 1, 1, ?)
+  `);
+  const insertMany = db.transaction((rows) => {
+    for (const d of rows) insert.run(d.id, d.image, new Date().toISOString());
+  });
+  insertMany(designsWithoutImages);
+}
 
 function migrateFromLegacyJson() {
   const designCount = db.prepare("SELECT COUNT(*) AS c FROM designs").get().c;
@@ -142,6 +177,10 @@ function getDesigns() {
   return db.prepare("SELECT * FROM designs ORDER BY rowid DESC").all();
 }
 
+function getDesign(id) {
+  return db.prepare("SELECT * FROM designs WHERE id = ?").get(id);
+}
+
 // TD-XXXX: fortlaufende Nummer über alle bisher vergebenen IDs hinweg
 function nextId() {
   const rows = db.prepare("SELECT id FROM designs").all();
@@ -169,6 +208,10 @@ function addDesign(design) {
     image: design.image,
     createdAt: design.createdAt,
   });
+  db.prepare(`
+    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, sichtbar, ist_hauptbild, createdAt)
+    VALUES (?, 'Mit Wasserzeichen', 'Hauptbild', ?, 1, 1, ?)
+  `).run(design.id, design.image, design.createdAt);
   return db.prepare("SELECT * FROM designs WHERE id = ?").get(design.id);
 }
 
@@ -189,7 +232,54 @@ function updateDesign(id, changes) {
 function deleteDesign(id) {
   const target = db.prepare("SELECT * FROM designs WHERE id = ?").get(id);
   if (!target) return null;
+  // Alle Bild-Dateipfade vorher einsammeln (design_images fällt per ON DELETE
+  // CASCADE mit weg, die Dateien auf der Platte muss der Aufrufer selbst löschen)
+  const imagePaths = db.prepare("SELECT image FROM design_images WHERE design_id = ?").all(id).map((r) => r.image);
   db.prepare("DELETE FROM designs WHERE id = ?").run(id);
+  return { ...target, allImagePaths: [...new Set([target.image, ...imagePaths])] };
+}
+
+// --- Bild-Varianten pro Design ---
+
+function getDesignImages(designId) {
+  return db.prepare("SELECT * FROM design_images WHERE design_id = ? ORDER BY rowid ASC").all(designId);
+}
+
+function addDesignImage({ design_id, kategorie, bezeichnung, image }) {
+  const info = db.prepare(`
+    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, sichtbar, ist_hauptbild, createdAt)
+    VALUES (?, ?, ?, ?, 0, 0, ?)
+  `).run(design_id, kategorie, bezeichnung || "", image, new Date().toISOString());
+  return db.prepare("SELECT * FROM design_images WHERE id = ?").get(info.lastInsertRowid);
+}
+
+function setDesignImageVisibility(imageId, sichtbar) {
+  const info = db.prepare("UPDATE design_images SET sichtbar = ? WHERE id = ?").run(sichtbar ? 1 : 0, imageId);
+  if (info.changes === 0) return null;
+  return db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
+}
+
+// Setzt genau ein Bild als Hauptbild (für die Design-Karte/Lightbox) und
+// spiegelt den Pfad zusätzlich in designs.image, damit der Rest des Codes
+// (der bisher nur designs.image kennt) unverändert weiterfunktioniert.
+const setHauptbild = db.transaction((designId, imageId) => {
+  const image = db.prepare("SELECT * FROM design_images WHERE id = ? AND design_id = ?").get(imageId, designId);
+  if (!image) return null;
+  db.prepare("UPDATE design_images SET ist_hauptbild = 0 WHERE design_id = ?").run(designId);
+  db.prepare("UPDATE design_images SET ist_hauptbild = 1, sichtbar = 1 WHERE id = ?").run(imageId);
+  db.prepare("UPDATE designs SET image = ? WHERE id = ?").run(image.image, designId);
+  return getDesignImages(designId);
+});
+
+function deleteDesignImage(imageId) {
+  const target = db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
+  if (!target) return null;
+  if (target.ist_hauptbild) {
+    const err = new Error("Das Hauptbild kann nicht gelöscht werden - erst ein anderes Bild als Hauptbild festlegen");
+    err.status = 400;
+    throw err;
+  }
+  db.prepare("DELETE FROM design_images WHERE id = ?").run(imageId);
   return target;
 }
 
@@ -354,6 +444,7 @@ const completeOrder = db.transaction((orderId) => {
 
 module.exports = {
   getDesigns,
+  getDesign,
   nextId,
   addDesign,
   updateDesign,
@@ -373,4 +464,10 @@ module.exports = {
   completeOrder,
   updateOrder,
   deleteOrder,
+  IMAGE_KATEGORIE_VALUES,
+  getDesignImages,
+  addDesignImage,
+  setDesignImageVisibility,
+  setHauptbild,
+  deleteDesignImage,
 };

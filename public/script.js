@@ -6,6 +6,7 @@ const emptyState = document.getElementById("empty-state");
 
 const lightbox = document.getElementById("lightbox");
 const lightboxImage = document.getElementById("lightbox-image");
+const lightboxThumbs = document.getElementById("lightbox-thumbs");
 const lightboxBadge = document.getElementById("lightbox-badge");
 const lightboxId = document.getElementById("lightbox-id");
 const lightboxName = document.getElementById("lightbox-name");
@@ -138,10 +139,37 @@ function updateLightboxInquiryToggle() {
   lightboxInquiryToggle.classList.toggle("selected", isSelected);
 }
 
+async function loadLightboxThumbs(design) {
+  lightboxThumbs.hidden = true;
+  lightboxThumbs.innerHTML = "";
+  try {
+    const res = await fetch(`/api/designs/${design.id}/images`);
+    if (!res.ok || currentLightboxDesign !== design) return;
+    const images = await res.json();
+    if (currentLightboxDesign !== design || images.length < 2) return;
+
+    images.forEach((img) => {
+      const thumb = el("button", { type: "button", className: "lightbox-thumb" }, [
+        el("img", { src: img.image, alt: img.bezeichnung || img.kategorie, loading: "lazy" }),
+      ]);
+      if (img.image === design.image) thumb.classList.add("active");
+      thumb.addEventListener("click", () => {
+        lightboxImage.src = img.image;
+        [...lightboxThumbs.children].forEach((t) => t.classList.toggle("active", t === thumb));
+      });
+      lightboxThumbs.appendChild(thumb);
+    });
+    lightboxThumbs.hidden = false;
+  } catch {
+    // Hauptbild bleibt trotzdem sichtbar, wenn die Varianten nicht geladen werden können
+  }
+}
+
 function openLightbox(design) {
   currentLightboxDesign = design;
   lightboxImage.src = design.image;
   lightboxImage.alt = design.name;
+  loadLightboxThumbs(design);
   lightboxId.textContent = design.id;
   lightboxName.textContent = design.name;
   lightboxDescription.textContent = design.description || "";

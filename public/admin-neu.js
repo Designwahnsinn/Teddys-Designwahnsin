@@ -27,8 +27,14 @@ form.addEventListener("submit", async (e) => {
   const res = await fetch("/api/admin/designs", { method: "POST", body: formData });
 
   if (res.ok) {
-    message.textContent = "Design hochgeladen.";
-    message.className = "success";
+    const data = await res.json();
+    if (data.qualityWarning) {
+      message.textContent = `Design hochgeladen. ⚠️ ${data.qualityWarning}`;
+      message.className = "warning";
+    } else {
+      message.textContent = "Design hochgeladen.";
+      message.className = "success";
+    }
     form.reset();
   } else {
     const data = await res.json().catch(() => ({}));

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bilder verwalten – Teddys Designwahnsinn</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <main>
+    <div class="admin-header">
+      <div>
+        <a class="admin-nav-link" href="/mitarbeiter/designs">← Designs verwalten</a>
+        <h1 id="design-title">Bilder verwalten</h1>
+      </div>
+      <div class="admin-header-actions">
+        <form class="logout-form" action="/mitarbeiter/logout" method="POST">
+          <button type="submit">Abmelden</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="image-grid" id="image-grid"></div>
+
+    <form class="upload-form" id="image-upload-form">
+      <h2>Neue Bild-Variante hochladen</h2>
+      <div class="quality-hint-box">
+        <strong>Export-Einstellungen in Canva</strong>
+        <ul>
+          <li>Größe: 20 × 20 cm bei 300 dpi (≈ 2362 × 2362 Pixel)</li>
+          <li>Dateityp: PNG (transparenter Hintergrund) oder JPG</li>
+          <li>Qualität beim Download: „Beste Qualität" / höchste Stufe wählen</li>
+        </ul>
+      </div>
+      <label for="image-file">Bilddatei</label>
+      <input type="file" id="image-file" name="image" accept="image/png,image/jpeg,image/webp,image/avif" required>
+
+      <label for="image-kategorie">Kategorie</label>
+      <select id="image-kategorie" name="kategorie" required></select>
+
+      <label for="image-bezeichnung">Bezeichnung (optional)</label>
+      <input type="text" id="image-bezeichnung" name="bezeichnung" placeholder="z. B. Heller Hintergrund">
+
+      <button type="submit">Hochladen</button>
+      <p id="upload-message"></p>
+    </form>
+  </main>
+
+  <script src="/admin-design-bilder.js"></script>
+</body>
+</html>
