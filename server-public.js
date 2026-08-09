@@ -33,6 +33,18 @@ app.use(
 // sobald die Seite fertig für den Launch ist.
 const SITE_LIVE = process.env.SITE_LIVE === "true";
 const ALLOWED_PATHS_WHILE_NOT_LIVE = ["/impressum.html", "/datenschutz.html", "/style.css"];
+// Erlaubt Mitarbeitern, die Seite vor dem Launch trotzdem vollständig zu
+// testen: Aufruf mit ?preview=<PREVIEW_SECRET> setzt ein Cookie, das die
+// Baustellen-Sperre für diesen Browser dauerhaft umgeht (bis das Cookie
+// abläuft oder gelöscht wird). Für normale Besucher ändert sich nichts.
+const PREVIEW_SECRET = process.env.PREVIEW_SECRET || "";
+const PREVIEW_COOKIE = "site_preview";
+
+function hasPreviewCookie(req) {
+  if (!PREVIEW_SECRET) return false;
+  const header = req.headers.cookie || "";
+  return header.split("; ").includes(`${PREVIEW_COOKIE}=${PREVIEW_SECRET}`);
+}
 // Passendes Motiv für den Platzhalter ("Baustelle"-Design) - Bild kommt live
 // aus der Datenbank, damit es sich mitändert, falls das Design mal angepasst wird.
 const COMING_SOON_DESIGN_ID = "TD-0001";
@@ -63,7 +75,16 @@ function renderComingSoonHtml() {
 
 if (!SITE_LIVE) {
   app.use((req, res, next) => {
+    if (PREVIEW_SECRET && req.query.preview === PREVIEW_SECRET) {
+      res.cookie(PREVIEW_COOKIE, PREVIEW_SECRET, {
+        maxAge: 90 * 24 * 60 * 60 * 1000, // 90 Tage
+        httpOnly: true,
+        sameSite: "lax",
+      });
+      return next();
+    }
     if (
+      hasPreviewCookie(req) ||
       ALLOWED_PATHS_WHILE_NOT_LIVE.includes(req.path) ||
       req.path.startsWith("/images/") ||
       req.path.startsWith("/uploads/")

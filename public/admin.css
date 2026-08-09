@@ -27,6 +27,16 @@
 .logout-form button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* Dashboard */
+.preview-banner {
+  background: #fff3e0;
+  border: 1px solid #f0c98a;
+  border-radius: 12px;
+  padding: 0.9rem 1.2rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+  max-width: 900px;
+}
+.preview-banner a { color: var(--accent); font-weight: 600; margin-left: 0.5rem; }
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

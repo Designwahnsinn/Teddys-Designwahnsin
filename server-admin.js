@@ -221,10 +221,14 @@ app.get("/mitarbeiter/nas", requireAuth, (req, res) => {
 // Wird von admin-designs.js / admin-neu.js / admin-kategorien.js für die
 // Kategorien-Auswahl gebraucht (gleiche Form wie beim öffentlichen /api/config)
 app.get("/api/config", requireAuth, (req, res) => {
+  const siteLive = process.env.SITE_LIVE === "true";
+  const previewSecret = process.env.PREVIEW_SECRET || "";
   res.json({
     categories: db.getCategories(),
     whatsappNumber: WHATSAPP_NUMBER,
     imageKategorien: db.IMAGE_KATEGORIE_VALUES,
+    siteLive,
+    previewUrl: !siteLive && previewSecret ? `${PUBLIC_ORIGINS[0]}/?preview=${previewSecret}` : null,
   });
 });
 
