@@ -10,6 +10,7 @@ const FileType = require("file-type");
 const { imageSize } = require("image-size");
 const db = require("./db");
 const drive = require("./drive");
+const sortedUploads = require("./sorted-uploads");
 
 const PORT = process.env.ADMIN_PORT || 3001;
 const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || "";
@@ -28,6 +29,24 @@ if (!ADMIN_PASSWORD || !SESSION_SECRET) {
 
 const UPLOADS_DIR = path.join(__dirname, "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+// Einmalige Migration: bestehende Design-Bilder (von vor Einführung der
+// sortierten Ablage) in die Ordnerstruktur uploads-sorted/<Design-ID>/<Kategorie>/
+// nachziehen. Ein Design gilt als bereits migriert, sobald sein Ordner existiert.
+function backfillSortedUploads() {
+  for (const design of db.getDesigns()) {
+    const designDir = path.join(sortedUploads.SORTED_DIR, design.id);
+    if (fs.existsSync(designDir)) continue;
+    for (const img of db.getDesignImages(design.id)) {
+      const localPath = path.join(UPLOADS_DIR, path.basename(img.image));
+      const ext = img.image.split(".").pop();
+      if (fs.existsSync(localPath)) {
+        sortedUploads.mirrorSorted(localPath, design.id, img.kategorie, img.bezeichnung, ext);
+      }
+    }
+  }
+}
+backfillSortedUploads();
 
 const STATUS_VALUES = ["verfügbar", "exklusiv", "verkauft"];
 const ALLOWED_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp", "image/avif"];
@@ -238,11 +257,9 @@ app.post("/api/admin/designs", requireAuth, upload.single("image"), async (req, 
       image: `/uploads/${filename}`,
       createdAt: new Date().toISOString(),
     });
-    drive.syncToDrive(
-      path.join(UPLOADS_DIR, filename),
-      `${design.id} - ${safeDriveNamePart(name)}.${filename.split(".").pop()}`,
-      mime
-    );
+    const ext = filename.split(".").pop();
+    drive.syncToDrive(path.join(UPLOADS_DIR, filename), `${design.id} - ${safeDriveNamePart(name)}.${ext}`, mime);
+    sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), design.id, "Mit Wasserzeichen", "Hauptbild", ext);
     res.status(201).json({ ...design, qualityWarning });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
@@ -287,6 +304,7 @@ app.delete("/api/admin/designs/:id", requireAuth, (req, res) => {
   for (const img of removed.allImagePaths) {
     fs.unlink(path.join(UPLOADS_DIR, path.basename(img)), () => {});
   }
+  sortedUploads.removeSortedDesign(req.params.id);
 
   res.json({ ok: true });
 });
@@ -317,12 +335,10 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.single("image"), a
       bezeichnung: bezeichnung || "",
       image: `/uploads/${filename}`,
     });
+    const ext = filename.split(".").pop();
     const label = [kategorie, bezeichnung].filter(Boolean).map(safeDriveNamePart).join(" - ");
-    drive.syncToDrive(
-      path.join(UPLOADS_DIR, filename),
-      `${design.id} - ${label}.${filename.split(".").pop()}`,
-      mime
-    );
+    drive.syncToDrive(path.join(UPLOADS_DIR, filename), `${design.id} - ${label}.${ext}`, mime);
+    sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), design.id, kategorie, bezeichnung, ext);
     res.status(201).json({ ...image, qualityWarning });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
@@ -354,6 +370,7 @@ app.delete("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => 
     const removed = db.deleteDesignImage(req.params.imageId);
     if (!removed) return res.status(404).json({ error: "Bild nicht gefunden" });
     fs.unlink(path.join(UPLOADS_DIR, path.basename(removed.image)), () => {});
+    sortedUploads.removeSorted(removed.design_id, removed.kategorie, removed.bezeichnung, removed.image.split(".").pop());
     res.json({ ok: true });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });

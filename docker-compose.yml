@@ -25,6 +25,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
+      - ./uploads-sorted:/app/uploads-sorted
       - ./google-drive-key.json:/app/google-drive-key.json:ro
     env_file:
       - .env

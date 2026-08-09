@@ -42,7 +42,7 @@ function renderCardView(d, body) {
       el("a", { href: d.driveLink, target: "_blank", rel: "noopener", textContent: "📁 Originaldatei auf Drive" }),
     ]));
   }
-  children.push(el("div", { className: "card-actions" }, [statusSelect, editBtn, deleteBtn]));
+  children.push(el("div", { className: "card-actions" }, [statusSelect, editBtn, imagesLink, deleteBtn]));
 
   body.append(...children);
 }
