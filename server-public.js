@@ -99,7 +99,8 @@ if (!SITE_LIVE) {
       hasPreviewCookie(req) ||
       ALLOWED_PATHS_WHILE_NOT_LIVE.includes(req.path) ||
       req.path.startsWith("/images/") ||
-      req.path.startsWith("/uploads/")
+      req.path.startsWith("/uploads/") ||
+      req.path.startsWith("/bestellung/")
     ) {
       return next();
     }
@@ -134,6 +135,12 @@ app.get("/api/designs/:id/images", (req, res) => {
   // einsehbar sein (kein Vertrauen auf die manuelle Checkbox im
   // Mitarbeiterbereich, das ist eine harte Serverregel).
   res.json(db.getDesignImages(req.params.id).filter((img) => img.sichtbar && img.wasserzeichen));
+});
+
+// Order-Portal: eine statische Seite, deren JS anhand des Tokens im Pfad
+// (nicht der Bestell-ID) die Bestelldaten von der Mitarbeiter-Subdomain lädt.
+app.get("/bestellung/:token", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "bestellung.html"));
 });
 
 // Bilddateien haben unveränderliche UUID-Dateinamen -> lange, feste Cache-Zeit

@@ -55,4 +55,14 @@ function removeSortedDesign(designId) {
   }
 }
 
-module.exports = { mirrorSorted, removeSorted, removeSortedDesign, SORTED_DIR };
+function renameSortedDesign(oldId, newId) {
+  try {
+    const oldDir = path.join(SORTED_DIR, safeName(oldId));
+    const newDir = path.join(SORTED_DIR, safeName(newId));
+    if (fs.existsSync(oldDir)) fs.renameSync(oldDir, newDir);
+  } catch (err) {
+    console.error(`Umbenennen der sortierten Ablage fehlgeschlagen für ${oldId} -> ${newId}:`, err.message);
+  }
+}
+
+module.exports = { mirrorSorted, removeSorted, removeSortedDesign, renameSortedDesign, SORTED_DIR };

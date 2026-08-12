@@ -419,6 +419,7 @@
 .status-offen { background: #fff2d8; color: #a6660b; }
 .status-in-bearbeitung { background: #dcecff; color: #1c5fa8; }
 .status-erledigt { background: #dff5e3; color: #2d7a4f; }
+.status-storniert { background: #f4d6d6; color: #a12b2b; }
 
 /* Bestellungen: Wizard */
 .wizard-progress {
@@ -463,6 +464,23 @@
 .wizard-panel button:hover { opacity: 0.9; }
 .wizard-panel button.delete-btn { background: #c0392b; }
 .wizard-hint { color: var(--muted); font-size: 0.9rem; }
+.wizard-panel-hint {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  margin-bottom: 1.25rem;
+}
+.wizard-panel-hint label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--muted); margin-bottom: 0.4rem; }
+.wizard-panel-hint input[type="text"] {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  background: #fff;
+}
 .download-list li { margin-bottom: 0.4rem; }
 .download-link {
   display: inline-block;

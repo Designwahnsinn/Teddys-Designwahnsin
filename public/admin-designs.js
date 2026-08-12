@@ -130,8 +130,32 @@ function renderCardEdit(d, body) {
   const cancelBtn = el("button", { className: "cancel-btn", textContent: "Abbrechen" });
   cancelBtn.addEventListener("click", () => renderCardView(d, body));
 
+  const idInput = el("input", { type: "text", value: d.id, placeholder: "TD-0000" });
+  const idErrorMsg = el("p", { className: "edit-error" });
+  const idSaveBtn = el("button", { className: "edit-btn", textContent: "ID ändern" });
+  idSaveBtn.addEventListener("click", async () => {
+    const newId = idInput.value.trim();
+    if (newId === d.id) return;
+    if (!confirm(`TD-ID wirklich von ${d.id} auf ${newId} ändern? Nur für Testzwecke gedacht.`)) return;
+    const res = await fetch(`/api/admin/designs/${d.id}/rename-id`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ newId }),
+    });
+    if (res.ok) {
+      idErrorMsg.textContent = "";
+      loadDesigns();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      idErrorMsg.textContent = data.error || "Fehler beim Ändern der ID.";
+    }
+  });
+
   body.append(
     el("span", { className: "design-id", textContent: d.id }),
+    el("label", { textContent: "TD-ID (nur für Testzwecke ändern)" }),
+    el("div", { className: "card-actions" }, [idInput, idSaveBtn]),
+    idErrorMsg,
     el("label", { textContent: "Name" }), nameInput,
     el("label", { textContent: "Kategorie" }), catSelect,
     el("label", { textContent: "Beschreibung" }), descInput,

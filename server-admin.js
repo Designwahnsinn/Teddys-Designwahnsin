@@ -122,7 +122,32 @@ const inquiryLimiter = rateLimit({
   message: { error: "Zu viele Anfragen. Bitte später erneut versuchen." },
 });
 
+// Etwas großzügiger als inquiryLimiter, da eine Bestellungs-Detailseite beim
+// Laden mehrere GET-Aufrufe macht und Kunden die Seite auch mehrfach neu
+// laden können, ohne gleich ausgesperrt zu werden.
+const orderPortalViewLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Zu viele Anfragen. Bitte später erneut versuchen." },
+});
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Platzhalter-Rechtstexte für die Order-Portal-Bestätigungsseite - der Nutzer
+// füllt die echten AGB/Widerrufsbelehrung/Nutzungsvereinbarung nach dem
+// Testen des Codes ein (siehe TODO-Markierungen). Bewusst als Server-Konstante
+// (nicht vom Client übermittelt), damit terms_text_snapshot beim Bestätigen
+// garantiert den tatsächlich angezeigten Text enthält, nicht etwas Manipulierbares.
+const ORDER_PORTAL_TERMS_TEXT = `
+[TODO: AGB einfügen]
+
+[TODO: Widerrufsbelehrung einfügen]
+
+[TODO: Nutzungsvereinbarung für die Designs einfügen - Nutzungsrecht statt
+Copyright, Weiterverkaufsverbot, Haftungsausschluss für Druckfehler]
+`.trim();
 
 // Dateien landen erst im Speicher, damit die Signatur geprüft werden kann,
 // bevor irgendetwas auf Platte geschrieben wird (MIME-Type allein ist spoofbar).
@@ -360,6 +385,22 @@ app.delete("/api/admin/designs/:id", requireAuth, (req, res) => {
   sortedUploads.removeSortedDesign(req.params.id);
 
   res.json({ ok: true });
+});
+
+// Ändert die TD-ID selbst (nicht den Namen) - nur für Testzwecke/Korrekturen,
+// nicht Teil des normalen Alltagsbetriebs. Zieht Bilder, Bestellzuordnungen
+// und die sortierte NAS-Ablage automatisch mit um.
+app.post("/api/admin/designs/:id/rename-id", requireAuth, (req, res) => {
+  const newId = (req.body.newId || "").trim();
+  if (!newId) return res.status(400).json({ error: "Neue ID ist Pflichtfeld" });
+  try {
+    const updated = db.renameDesignId(req.params.id, newId);
+    if (!updated) return res.status(404).json({ error: "Design nicht gefunden" });
+    sortedUploads.renameSortedDesign(req.params.id, newId);
+    res.json(updated);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
 });
 
 // Direkter Download einer Bilddatei mit sprechendem Dateinamen - für den
@@ -643,6 +684,26 @@ app.patch("/api/admin/orders/:id", requireAuth, (req, res) => {
   res.json(updated);
 });
 
+// Eigener Schalter fürs Order-Portal, bewusst getrennt vom Wizard-Schritt
+// "Download" (der bezieht sich auf den Mitarbeiter-eigenen Download, nicht
+// darauf ob der Kunde selbst schon herunterladen darf).
+app.post("/api/admin/orders/:id/freigabe", requireAuth, (req, res) => {
+  if (typeof req.body.freigegeben !== "boolean") {
+    return res.status(400).json({ error: "freigegeben (boolean) ist Pflichtfeld" });
+  }
+  const updated = db.setDownloadFreigabe(Number(req.params.id), req.body.freigegeben);
+  if (!updated) return res.status(404).json({ error: "Bestellung nicht gefunden" });
+  res.json(updated);
+});
+
+// Neuer Bestätigungslink - z.B. nach Ablauf der 90 Tage oder falls der alte
+// Link versehentlich woanders gelandet ist. Macht eine vorherige Bestätigung ungültig.
+app.post("/api/admin/orders/:id/regenerate-token", requireAuth, (req, res) => {
+  const updated = db.regenerateOrderToken(Number(req.params.id));
+  if (!updated) return res.status(404).json({ error: "Bestellung nicht gefunden" });
+  res.json(updated);
+});
+
 app.delete("/api/admin/orders/:id", requireAuth, (req, res) => {
   const removed = db.deleteOrder(Number(req.params.id));
   if (!removed) return res.status(404).json({ error: "Bestellung nicht gefunden" });
@@ -679,6 +740,91 @@ app.post("/api/public/inquiries", publicCors, inquiryLimiter, (req, res) => {
   const updated = db.setOrderDesigns(order.id, validIds);
 
   res.status(201).json({ ok: true, id: updated.id });
+});
+
+// --- Order-Portal: Kunden-Bestätigungsseite (Token statt Login) ---
+
+function isOrderTokenExpired(order) {
+  const ageMs = Date.now() - new Date(order.token_created_at).getTime();
+  return ageMs > db.ORDER_TOKEN_VALIDITY_DAYS * 24 * 60 * 60 * 1000;
+}
+
+// Zeigt Kunden nie ein "Ohne Wasserzeichen"-Bild als Vorschau - das ist die
+// Verkaufsdatei, die es erst nach Freigabe über die Download-Route gibt.
+function pickPreviewImage(designId) {
+  const images = db.getDesignImages(designId);
+  const hauptbild = images.find((img) => img.ist_hauptbild && img.wasserzeichen);
+  if (hauptbild) return hauptbild.image;
+  const anyWatermarked = images.find((img) => img.wasserzeichen);
+  return anyWatermarked ? anyWatermarked.image : null;
+}
+
+app.options("/api/public/order/:token", publicCors);
+app.get("/api/public/order/:token", publicCors, orderPortalViewLimiter, (req, res) => {
+  const order = db.getOrderByToken(req.params.token);
+  if (!order) return res.status(404).json({ error: "Bestellung nicht gefunden" });
+  if (isOrderTokenExpired(order)) {
+    return res.status(410).json({ error: "Dieser Link ist abgelaufen. Bitte melde dich bei uns für einen neuen Link.", expired: true });
+  }
+
+  const designs = order.designs.map((d) => ({
+    id: d.id,
+    name: d.name,
+    price: d.price,
+    previewImage: pickPreviewImage(d.id),
+    deliverables: order.download_freigegeben
+      ? db.getDesignImages(d.id).filter((img) => !img.wasserzeichen).map((img) => ({ id: img.id, bezeichnung: img.bezeichnung }))
+      : [],
+  }));
+
+  res.json({
+    kunde_name: order.kunde_name,
+    designs,
+    total: designs.reduce((sum, d) => sum + (d.price || 0), 0),
+    confirmed: !!order.terms_confirmed_at,
+    confirmedAt: order.terms_confirmed_at,
+    downloadFreigegeben: !!order.download_freigegeben,
+    status: order.status,
+    termsText: ORDER_PORTAL_TERMS_TEXT,
+  });
+});
+
+app.options("/api/public/order/:token/confirm", publicCors);
+app.post("/api/public/order/:token/confirm", publicCors, inquiryLimiter, (req, res) => {
+  const order = db.getOrderByToken(req.params.token);
+  if (!order) return res.status(404).json({ error: "Bestellung nicht gefunden" });
+  if (isOrderTokenExpired(order)) {
+    return res.status(410).json({ error: "Dieser Link ist abgelaufen. Bitte melde dich bei uns für einen neuen Link.", expired: true });
+  }
+  if (order.designs.length === 0) {
+    return res.status(400).json({ error: "Bestellung enthält noch keine Designs" });
+  }
+  if (req.body.confirmed !== true) {
+    return res.status(400).json({ error: "Bitte die Bestätigung ankreuzen" });
+  }
+
+  const updated = db.confirmOrderTerms(order.id, req.ip, ORDER_PORTAL_TERMS_TEXT);
+  res.json({ ok: true, confirmedAt: updated.terms_confirmed_at });
+});
+
+app.get("/api/public/order/:token/download/:imageId", publicCors, orderPortalViewLimiter, (req, res) => {
+  const order = db.getOrderByToken(req.params.token);
+  if (!order) return res.status(404).json({ error: "Bestellung nicht gefunden" });
+  if (isOrderTokenExpired(order)) {
+    return res.status(410).json({ error: "Dieser Link ist abgelaufen." });
+  }
+  if (!order.download_freigegeben) {
+    return res.status(403).json({ error: "Noch nicht zum Download freigegeben." });
+  }
+
+  const image = order.designs
+    .flatMap((d) => db.getDesignImages(d.id))
+    .find((img) => String(img.id) === req.params.imageId && !img.wasserzeichen);
+  if (!image) return res.status(404).json({ error: "Datei nicht gefunden." });
+
+  const target = path.join(UPLOADS_DIR, path.basename(image.image));
+  if (!fs.existsSync(target)) return res.status(404).json({ error: "Datei nicht gefunden." });
+  res.download(target);
 });
 
 // --- NAS-Ordner-Browser (read-only Ansicht von uploads-sorted/, der Quelle

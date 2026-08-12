@@ -1,10 +1,11 @@
 const titleEl = document.getElementById("edit-title");
 const panelEl = document.getElementById("edit-panel");
 
-const STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt"];
+const STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt", "Storniert"];
 const KONTAKT_PRAEFERENZ_VALUES = ["E-Mail", "WhatsApp"];
 const STEP_LABELS = {
   schritt_rechnung: "Rechnung erstellt",
+  schritt_bezahlung: "Auf Bezahlung gewartet",
   schritt_download: "Design(s) heruntergeladen",
   schritt_email_vorbereitet: "E-Mail vorbereitet",
   schritt_verschickt: "Als verschickt markiert",
@@ -12,6 +13,7 @@ const STEP_LABELS = {
 };
 
 const orderId = new URLSearchParams(window.location.search).get("id");
+const PUBLIC_ORIGIN = "https://designwahnsinn-teddy.de";
 
 function el(tag, props, children) {
   const node = document.createElement(tag);
@@ -132,6 +134,44 @@ function render(order, allDesigns) {
     render(updated, allDesigns);
   });
 
+  // --- Order-Portal ---
+  const confirmationLink = `${PUBLIC_ORIGIN}/bestellung/${order.access_token}`;
+  const linkInput = el("input", { type: "text", value: confirmationLink, readOnly: true });
+  const copyBtn = el("button", { type: "button", textContent: "Link kopieren" });
+  copyBtn.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(confirmationLink);
+    copyBtn.textContent = "Kopiert ✓";
+    setTimeout(() => { copyBtn.textContent = "Link kopieren"; }, 1500);
+  });
+
+  const confirmStatus = el("p", {
+    className: "wizard-hint",
+    textContent: order.terms_confirmed_at
+      ? `✅ Vom Kunden bestätigt am ${new Date(order.terms_confirmed_at).toLocaleString("de-DE")} (IP: ${order.terms_confirmed_ip})`
+      : "⏳ Noch nicht vom Kunden bestätigt.",
+  });
+
+  const freigabeLabel = el("label", { className: "online-toggle-field" });
+  const freigabeCheckbox = el("input", { type: "checkbox", checked: Boolean(order.download_freigegeben) });
+  freigabeCheckbox.addEventListener("change", async () => {
+    await fetch(`/api/admin/orders/${order.id}/freigabe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ freigegeben: freigabeCheckbox.checked }),
+    });
+  });
+  freigabeLabel.append(freigabeCheckbox, document.createTextNode(" Für Kunden-Download freigeben"));
+
+  const regenerateBtn = el("button", { type: "button", className: "cancel-btn", textContent: "Neuen Link generieren" });
+  regenerateBtn.addEventListener("click", async () => {
+    if (!confirm("Neuen Link generieren? Der alte Link funktioniert danach nicht mehr, und eine vorhandene Bestätigung des Kunden wird gelöscht.")) return;
+    const res = await fetch(`/api/admin/orders/${order.id}/regenerate-token`, { method: "POST" });
+    if (res.ok) {
+      const updated = await loadOrder(order.id);
+      render(updated, allDesigns);
+    }
+  });
+
   const deleteBtn = el("button", { type: "button", className: "delete-btn", textContent: "Bestellung löschen" });
   deleteBtn.addEventListener("click", async () => {
     if (!confirm(`Bestellung #${order.id} von ${order.kunde_name} wirklich unwiderruflich löschen?`)) return;
@@ -156,6 +196,12 @@ function render(order, allDesigns) {
     designList,
     el("h2", { textContent: "Schritte" }),
     stepsList,
+    el("h2", { textContent: "Order-Portal (Kunden-Bestätigungsseite)" }),
+    el("label", { textContent: "Bestätigungslink" }),
+    el("div", { className: "card-actions" }, [linkInput, copyBtn]),
+    confirmStatus,
+    freigabeLabel,
+    el("div", { className: "card-actions" }, [regenerateBtn]),
     errorMsg,
     successMsg,
     el("div", { className: "card-actions" }, [saveBtn, deleteBtn])

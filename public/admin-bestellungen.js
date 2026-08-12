@@ -2,9 +2,10 @@ const filtersEl = document.getElementById("order-filters");
 const rowsEl = document.getElementById("order-rows");
 const emptyEl = document.getElementById("order-empty");
 
-const STATUS_FILTERS = ["Alle", "Offen", "In Bearbeitung", "Erledigt"];
+const STATUS_FILTERS = ["Alle", "Offen", "In Bearbeitung", "Erledigt", "Storniert"];
 const STEP_LABELS = {
   schritt_rechnung: "Rechnung erstellen",
+  schritt_bezahlung: "Auf Bezahlung warten",
   schritt_download: "Design(s) herunterladen",
   schritt_email_vorbereitet: "E-Mail vorbereiten",
   schritt_verschickt: "Als verschickt markieren",

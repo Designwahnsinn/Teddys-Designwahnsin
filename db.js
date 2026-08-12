@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const Database = require("better-sqlite3");
 
 const DATA_DIR = path.join(__dirname, "data");
@@ -29,6 +30,7 @@ const DEFAULT_CATEGORIES = [
 // Schritt 2 = Designs zuordnen, Schritt 8 = Abschluss laufen über eigene Funktionen)
 const ORDER_STEPS = [
   "schritt_rechnung",
+  "schritt_bezahlung",
   "schritt_download",
   "schritt_email_vorbereitet",
   "schritt_verschickt",
@@ -80,11 +82,18 @@ db.exec(`
     bestelldatum TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'Offen',
     schritt_rechnung INTEGER NOT NULL DEFAULT 0,
+    schritt_bezahlung INTEGER NOT NULL DEFAULT 0,
     schritt_download INTEGER NOT NULL DEFAULT 0,
     schritt_email_vorbereitet INTEGER NOT NULL DEFAULT 0,
     schritt_verschickt INTEGER NOT NULL DEFAULT 0,
     schritt_datei_geloescht INTEGER NOT NULL DEFAULT 0,
-    notiz TEXT
+    notiz TEXT,
+    access_token TEXT,
+    token_created_at TEXT,
+    terms_confirmed_at TEXT,
+    terms_confirmed_ip TEXT,
+    terms_text_snapshot TEXT,
+    download_freigegeben INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS order_designs (
@@ -127,6 +136,13 @@ ensureColumn("design_images", "qualityWarning", "TEXT");
 ensureColumn("orders", "kunde_instagram", "TEXT");
 ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
+// Neuer Schritt "Auf Bezahlung warten" zwischen Rechnung und Download - für
+// Bestellungen, die schon weiter waren als der neue Schritt (schritt_download
+// bereits erledigt), rückwirkend als erledigt markieren, sonst würden sie
+// durch den neuen Zwischenschritt scheinbar wieder zurückfallen.
+if (ensureColumn("orders", "schritt_bezahlung", "INTEGER NOT NULL DEFAULT 0")) {
+  db.prepare("UPDATE orders SET schritt_bezahlung = 1 WHERE schritt_download = 1").run();
+}
 
 // Wasserzeichen und Hintergrund-Variante waren früher eine einzige flache
 // Kategorie ("Mit Wasserzeichen" / "Ohne Wasserzeichen" / "Hintergrund-Variante"),
@@ -144,6 +160,27 @@ if (wasserzeichenColumnAdded || hintergrundColumnAdded) {
     const wasserzeichen = row.kategorie === "Ohne Wasserzeichen" ? 0 : 1;
     update.run(wasserzeichen, hintergrund, row.id);
   }
+}
+
+// Order-Portal: Zugriffs-Token für die Kunden-Bestätigungsseite. Kryptographisch
+// zufällig statt von der fortlaufenden Bestell-ID ableitbar - sonst könnte
+// jemand einfach IDs durchprobieren (IDOR).
+function generateOrderToken() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+const ORDER_TOKEN_VALIDITY_DAYS = 90;
+
+ensureColumn("orders", "access_token", "TEXT");
+ensureColumn("orders", "token_created_at", "TEXT");
+ensureColumn("orders", "terms_confirmed_at", "TEXT");
+ensureColumn("orders", "terms_confirmed_ip", "TEXT");
+ensureColumn("orders", "terms_text_snapshot", "TEXT");
+ensureColumn("orders", "download_freigegeben", "INTEGER NOT NULL DEFAULT 0");
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_access_token ON orders(access_token)");
+// Bestellungen von vor Einführung des Order-Portals bekommen nachträglich einen Token.
+for (const row of db.prepare("SELECT id FROM orders WHERE access_token IS NULL").all()) {
+  db.prepare("UPDATE orders SET access_token = ?, token_created_at = ? WHERE id = ?")
+    .run(generateOrderToken(), new Date().toISOString(), row.id);
 }
 
 migrateFromLegacyJson();
@@ -288,6 +325,40 @@ function deleteDesign(id) {
   return { ...target, allImagePaths: [...new Set([target.image, ...imagePaths])] };
 }
 
+// Ändert die TD-ID eines Designs (nur für Testzwecke/Korrekturen gedacht,
+// nicht Teil des normalen Alltagsbetriebs). Die ID ist Primärschlüssel und an
+// mehreren Stellen per Fremdschlüssel referenziert (design_images, order_designs) -
+// Fremdschlüsselprüfung kurz deaktivieren, damit die Reihenfolge der Updates
+// innerhalb der Transaktion keine Rolle spielt, danach wieder aktivieren.
+function renameDesignId(oldId, newId) {
+  if (!/^TD-\d+$/.test(newId)) {
+    const err = new Error("Neue ID muss dem Format TD-0000 entsprechen");
+    err.status = 400;
+    throw err;
+  }
+  const existing = db.prepare("SELECT id FROM designs WHERE id = ?").get(oldId);
+  if (!existing) return null;
+  if (newId === oldId) return db.prepare("SELECT * FROM designs WHERE id = ?").get(oldId);
+  const collision = db.prepare("SELECT id FROM designs WHERE id = ?").get(newId);
+  if (collision) {
+    const err = new Error(`ID ${newId} ist bereits vergeben`);
+    err.status = 409;
+    throw err;
+  }
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.prepare("UPDATE designs SET id = ? WHERE id = ?").run(newId, oldId);
+      db.prepare("UPDATE design_images SET design_id = ? WHERE design_id = ?").run(newId, oldId);
+      db.prepare("UPDATE order_designs SET design_id = ? WHERE design_id = ?").run(newId, oldId);
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+  return db.prepare("SELECT * FROM designs WHERE id = ?").get(newId);
+}
+
 // --- Bild-Varianten pro Design ---
 
 function getDesignImages(designId) {
@@ -417,14 +488,16 @@ function deleteCategory(name) {
 
 function createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz }) {
   const info = db.prepare(`
-    INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status)
-    VALUES (?, ?, ?, ?, ?, ?, 'Offen')
+    INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status, access_token, token_created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'Offen', ?, ?)
   `).run(
     kunde_name,
     kunde_email,
     kunde_instagram || "",
     kunde_whatsapp || "",
     kontakt_praeferenz || "E-Mail",
+    new Date().toISOString(),
+    generateOrderToken(),
     new Date().toISOString()
   );
   return getOrder(info.lastInsertRowid);
@@ -435,6 +508,13 @@ function setOrderDesigns(orderId, designIds) {
     db.prepare("DELETE FROM order_designs WHERE order_id = ?").run(orderId);
     const insert = db.prepare("INSERT INTO order_designs (order_id, design_id) VALUES (?, ?)");
     for (const designId of ids) insert.run(orderId, designId);
+    // Wenn der Kunde die Bestellung schon über das Order-Portal bestätigt
+    // hatte, macht eine nachträgliche Design-Änderung diese Bestätigung
+    // ungültig - Kunde muss die (jetzt andere) Bestellung erneut bestätigen.
+    db.prepare(`
+      UPDATE orders SET terms_confirmed_at = NULL, terms_confirmed_ip = NULL, terms_text_snapshot = NULL
+      WHERE id = ? AND terms_confirmed_at IS NOT NULL
+    `).run(orderId);
   });
   setDesigns(designIds);
   return getOrder(orderId);
@@ -451,6 +531,48 @@ function getOrder(id) {
   return { ...order, designs };
 }
 
+// --- Order-Portal (Kunden-Bestätigungsseite) ---
+
+function getOrderByToken(token) {
+  const order = db.prepare("SELECT * FROM orders WHERE access_token = ?").get(token);
+  if (!order) return null;
+  const designs = db.prepare(`
+    SELECT d.* FROM designs d
+    JOIN order_designs od ON od.design_id = d.id
+    WHERE od.order_id = ?
+  `).all(order.id);
+  return { ...order, designs };
+}
+
+function confirmOrderTerms(orderId, ip, textSnapshot) {
+  const info = db
+    .prepare("UPDATE orders SET terms_confirmed_at = ?, terms_confirmed_ip = ?, terms_text_snapshot = ? WHERE id = ?")
+    .run(new Date().toISOString(), ip, textSnapshot, orderId);
+  if (info.changes === 0) return null;
+  return getOrder(orderId);
+}
+
+// Neuer Token nach Ablauf oder falls der alte Link versehentlich woanders
+// gelandet ist - macht eine vorherige Bestätigung ungültig, da diese sich auf
+// den alten Link bezog.
+function regenerateOrderToken(orderId) {
+  const info = db
+    .prepare(`
+      UPDATE orders SET access_token = ?, token_created_at = ?,
+        terms_confirmed_at = NULL, terms_confirmed_ip = NULL, terms_text_snapshot = NULL
+      WHERE id = ?
+    `)
+    .run(generateOrderToken(), new Date().toISOString(), orderId);
+  if (info.changes === 0) return null;
+  return getOrder(orderId);
+}
+
+function setDownloadFreigabe(orderId, freigegeben) {
+  const info = db.prepare("UPDATE orders SET download_freigegeben = ? WHERE id = ?").run(freigegeben ? 1 : 0, orderId);
+  if (info.changes === 0) return null;
+  return getOrder(orderId);
+}
+
 function listOrders(status) {
   const orders = status
     ? db.prepare("SELECT * FROM orders WHERE status = ? ORDER BY bestelldatum DESC").all(status)
@@ -464,7 +586,7 @@ function listOrders(status) {
   return orders.map((order) => ({ ...order, designs: designCountStmt.all(order.id) }));
 }
 
-const ORDER_STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt"];
+const ORDER_STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt", "Storniert"];
 const ORDER_UPDATE_FIELDS = [
   "kunde_name",
   "kunde_email",
@@ -502,6 +624,15 @@ function deleteOrder(id) {
   const existing = getOrder(id);
   if (!existing) return null;
   db.prepare("DELETE FROM orders WHERE id = ?").run(id);
+  // Bestellnummern-Zähler nach dem Löschen aufräumen: bei Test-Bestellungen
+  // soll die nächste echte Bestellung wieder lückenlos anschließen statt
+  // eine "Lücke" durch die gelöschte Test-Nummer zu hinterlassen.
+  const max = db.prepare("SELECT MAX(id) AS max FROM orders").get().max;
+  if (max === null) {
+    db.prepare("DELETE FROM sqlite_sequence WHERE name = 'orders'").run();
+  } else {
+    db.prepare("UPDATE sqlite_sequence SET seq = ? WHERE name = 'orders'").run(max);
+  }
   return existing;
 }
 
@@ -554,6 +685,7 @@ module.exports = {
   addDesign,
   updateDesign,
   deleteDesign,
+  renameDesignId,
   getCategories,
   addCategory,
   renameCategory,
@@ -564,6 +696,11 @@ module.exports = {
   createOrder,
   setOrderDesigns,
   getOrder,
+  getOrderByToken,
+  confirmOrderTerms,
+  regenerateOrderToken,
+  setDownloadFreigabe,
+  ORDER_TOKEN_VALIDITY_DAYS,
   listOrders,
   advanceOrderStep,
   completeOrder,
