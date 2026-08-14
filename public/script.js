@@ -90,7 +90,7 @@ function renderCards(designs) {
   cardsEl.innerHTML = "";
   designs.forEach((d) => {
     const card = el("article", { className: "masonry-card" });
-    card.appendChild(el("img", { src: d.image, alt: d.name, loading: "lazy" }));
+    card.appendChild(el("img", { src: d.previewImage || d.image, alt: d.name, loading: "lazy" }));
 
     const selectBtn = el("button", {
       type: "button",
@@ -150,11 +150,11 @@ async function loadLightboxThumbs(design) {
 
     images.forEach((img) => {
       const thumb = el("button", { type: "button", className: "lightbox-thumb" }, [
-        el("img", { src: img.image, alt: img.bezeichnung || img.kategorie, loading: "lazy" }),
+        el("img", { src: img.previewImage || img.image, alt: img.bezeichnung || img.kategorie, loading: "lazy" }),
       ]);
       if (img.image === design.image) thumb.classList.add("active");
       thumb.addEventListener("click", () => {
-        lightboxImage.src = img.image;
+        lightboxImage.src = img.previewImage || img.image;
         [...lightboxThumbs.children].forEach((t) => t.classList.toggle("active", t === thumb));
       });
       lightboxThumbs.appendChild(thumb);
@@ -167,7 +167,7 @@ async function loadLightboxThumbs(design) {
 
 function openLightbox(design) {
   currentLightboxDesign = design;
-  lightboxImage.src = design.image;
+  lightboxImage.src = design.previewImage || design.image;
   lightboxImage.alt = design.name;
   loadLightboxThumbs(design);
   lightboxId.textContent = design.id;
@@ -235,7 +235,7 @@ function renderInquirySelectedList() {
     });
     inquirySelectedList.appendChild(
       el("div", { className: "inquiry-selected-item" }, [
-        el("img", { src: design.image, alt: design.name }),
+        el("img", { src: design.previewImage || design.image, alt: design.name }),
         el("span", { textContent: design.name }),
         removeBtn,
       ])

@@ -55,7 +55,17 @@ async function navigate(newPath) {
   data.entries.forEach((entry) => {
     const entryPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
     if (entry.type === "dir") {
-      const row = el("button", { type: "button", className: "nas-row nas-dir", textContent: `📁 ${entry.name}` });
+      const row = el("button", { type: "button", className: "nas-row nas-dir" });
+      if (entry.previewImage) {
+        row.appendChild(el("img", {
+          className: "nas-thumb nas-thumb-dir",
+          src: `/api/admin/nas-browse/view?path=${encodeURIComponent(entry.previewImage)}`,
+          alt: "",
+        }));
+      } else {
+        row.appendChild(el("span", { textContent: "📁" }));
+      }
+      row.appendChild(document.createTextNode(` ${entry.name}`));
       row.addEventListener("click", () => navigate(entryPath));
       listEl.appendChild(row);
     } else {

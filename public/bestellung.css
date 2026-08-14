@@ -72,5 +72,12 @@
 .order-waiting p { margin-bottom: 0.5rem; }
 .order-waiting p:last-child { margin-bottom: 0; }
 
+.order-documents-section {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
 .order-error { text-align: center; color: var(--muted); }
 .order-error p:first-child { color: var(--text); font-weight: 600; margin-bottom: 0.5rem; }

@@ -133,6 +133,12 @@ function ensureColumn(table, column, definition) {
 ensureColumn("designs", "instagramLink", "TEXT");
 ensureColumn("designs", "online", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("design_images", "qualityWarning", "TEXT");
+// Verkleinertes Web-Vorschaubild (von sharp erzeugt, z.B. WebP) - die
+// öffentliche Seite zeigt bevorzugt dieses statt der oft sehr großen
+// Original-Canva-Exportdatei, um die Ladezeit klein zu halten. Original bleibt
+// unangetastet für den Druck/die Verkaufsdatei erhalten. NULL = altes Bild von
+// vor Einführung dieses Features, Fallback bleibt das Original.
+ensureColumn("design_images", "previewImage", "TEXT");
 ensureColumn("orders", "kunde_instagram", "TEXT");
 ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
@@ -176,6 +182,12 @@ ensureColumn("orders", "terms_confirmed_at", "TEXT");
 ensureColumn("orders", "terms_confirmed_ip", "TEXT");
 ensureColumn("orders", "terms_text_snapshot", "TEXT");
 ensureColumn("orders", "download_freigegeben", "INTEGER NOT NULL DEFAULT 0");
+// Datei-Ablage für Rechnung (Pflicht-Workflow-Schritt) und Angebot (optionaler
+// Zwischenschritt, z.B. wenn Kunden erst ein Angebot bekommen sollen, bevor
+// eine Rechnung gestellt wird) - beide speichern nur den Dateinamen (wie
+// designs.image), die Datei selbst liegt in UPLOADS_DIR.
+ensureColumn("orders", "rechnung_datei", "TEXT");
+ensureColumn("orders", "angebot_datei", "TEXT");
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_access_token ON orders(access_token)");
 // Bestellungen von vor Einführung des Order-Portals bekommen nachträglich einen Token.
 for (const row of db.prepare("SELECT id FROM orders WHERE access_token IS NULL").all()) {
@@ -251,11 +263,12 @@ function migrateFromLegacyJson() {
 // --- Designs ---
 
 function getDesigns() {
-  // qualityWarning kommt vom Hauptbild - Auflösungshinweis soll überall
-  // sichtbar sein, wo Designs in einer Liste ausgewählt werden (z.B. Bestell-Wizard),
-  // ohne dass man dafür extra die Bilder-verwalten-Seite pro Design aufrufen muss.
+  // qualityWarning und previewImage kommen vom Hauptbild - beide sollen überall
+  // verfügbar sein, wo Designs in einer Liste angezeigt/ausgewählt werden
+  // (z.B. öffentliche Galerie, Bestell-Wizard), ohne dass man dafür extra die
+  // Bilder-verwalten-Seite pro Design aufrufen muss.
   return db.prepare(`
-    SELECT designs.*, design_images.qualityWarning AS qualityWarning
+    SELECT designs.*, design_images.qualityWarning AS qualityWarning, design_images.previewImage AS previewImage
     FROM designs
     LEFT JOIN design_images ON design_images.design_id = designs.id AND design_images.ist_hauptbild = 1
     ORDER BY designs.rowid DESC
@@ -295,9 +308,9 @@ function addDesign(design) {
     createdAt: design.createdAt,
   });
   db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, sichtbar, ist_hauptbild, qualityWarning, createdAt)
-    VALUES (?, 'Mit Wasserzeichen', 'Hauptbild', ?, 1, 1, ?, ?)
-  `).run(design.id, design.image, design.qualityWarning || null, design.createdAt);
+    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, createdAt)
+    VALUES (?, 'Mit Wasserzeichen', 'Hauptbild', ?, ?, 1, 1, ?, ?)
+  `).run(design.id, design.image, design.previewImage || null, design.qualityWarning || null, design.createdAt);
   return db.prepare("SELECT * FROM designs WHERE id = ?").get(design.id);
 }
 
@@ -318,9 +331,11 @@ function updateDesign(id, changes) {
 function deleteDesign(id) {
   const target = db.prepare("SELECT * FROM designs WHERE id = ?").get(id);
   if (!target) return null;
-  // Alle Bild-Dateipfade vorher einsammeln (design_images fällt per ON DELETE
-  // CASCADE mit weg, die Dateien auf der Platte muss der Aufrufer selbst löschen)
-  const imagePaths = db.prepare("SELECT image FROM design_images WHERE design_id = ?").all(id).map((r) => r.image);
+  // Alle Bild-Dateipfade (Original + Vorschaubild) vorher einsammeln
+  // (design_images fällt per ON DELETE CASCADE mit weg, die Dateien auf der
+  // Platte muss der Aufrufer selbst löschen)
+  const rows = db.prepare("SELECT image, previewImage FROM design_images WHERE design_id = ?").all(id);
+  const imagePaths = rows.flatMap((r) => [r.image, r.previewImage]).filter(Boolean);
   db.prepare("DELETE FROM designs WHERE id = ?").run(id);
   return { ...target, allImagePaths: [...new Set([target.image, ...imagePaths])] };
 }
@@ -365,13 +380,13 @@ function getDesignImages(designId) {
   return db.prepare("SELECT * FROM design_images WHERE design_id = ? ORDER BY rowid ASC").all(designId);
 }
 
-function addDesignImage({ design_id, wasserzeichen, hintergrundVariante, bezeichnung, image, sichtbar, qualityWarning }) {
+function addDesignImage({ design_id, wasserzeichen, hintergrundVariante, bezeichnung, image, previewImage, sichtbar, qualityWarning }) {
   const wz = wasserzeichen ? 1 : 0;
   const hg = hintergrundVariante ? 1 : 0;
   const info = db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, wasserzeichen, hintergrundVariante, bezeichnung, image, sichtbar, ist_hauptbild, qualityWarning, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-  `).run(design_id, kategorieLabel(wz, hg), wz, hg, bezeichnung || "", image, sichtbar ? 1 : 0, qualityWarning || null, new Date().toISOString());
+    INSERT INTO design_images (design_id, kategorie, wasserzeichen, hintergrundVariante, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+  `).run(design_id, kategorieLabel(wz, hg), wz, hg, bezeichnung || "", image, previewImage || null, sichtbar ? 1 : 0, qualityWarning || null, new Date().toISOString());
   return db.prepare("SELECT * FROM design_images WHERE id = ?").get(info.lastInsertRowid);
 }
 
@@ -380,11 +395,11 @@ function addDesignImage({ design_id, wasserzeichen, hintergrundVariante, bezeich
 // Sichtbarkeit/Hauptbild-Flag. Gibt die alte Zeile mit zurück, damit der
 // Aufrufer die alte Datei von der Platte löschen und ggf. designs.image
 // (falls Hauptbild) sowie die sortierte Ablage aktualisieren kann.
-function replaceDesignImage(imageId, { image, qualityWarning }) {
+function replaceDesignImage(imageId, { image, previewImage, qualityWarning }) {
   const existing = db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
   if (!existing) return null;
-  db.prepare("UPDATE design_images SET image = ?, qualityWarning = ? WHERE id = ?")
-    .run(image, qualityWarning || null, imageId);
+  db.prepare("UPDATE design_images SET image = ?, previewImage = ?, qualityWarning = ? WHERE id = ?")
+    .run(image, previewImage || null, qualityWarning || null, imageId);
   if (existing.ist_hauptbild) {
     db.prepare("UPDATE designs SET image = ? WHERE id = ?").run(image, existing.design_id);
   }
@@ -573,6 +588,17 @@ function setDownloadFreigabe(orderId, freigegeben) {
   return getOrder(orderId);
 }
 
+const ORDER_FILE_FIELDS = ["rechnung_datei", "angebot_datei"];
+
+function setOrderFile(orderId, field, filename) {
+  if (!ORDER_FILE_FIELDS.includes(field)) {
+    throw new Error(`Unbekanntes Datei-Feld: ${field}`);
+  }
+  const info = db.prepare(`UPDATE orders SET ${field} = ? WHERE id = ?`).run(filename, orderId);
+  if (info.changes === 0) return null;
+  return getOrder(orderId);
+}
+
 function listOrders(status) {
   const orders = status
     ? db.prepare("SELECT * FROM orders WHERE status = ? ORDER BY bestelldatum DESC").all(status)
@@ -700,6 +726,7 @@ module.exports = {
   confirmOrderTerms,
   regenerateOrderToken,
   setDownloadFreigabe,
+  setOrderFile,
   ORDER_TOKEN_VALIDITY_DAYS,
   listOrders,
   advanceOrderStep,

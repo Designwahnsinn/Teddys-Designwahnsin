@@ -106,6 +106,18 @@ function renderConfirmForm(order) {
   return form;
 }
 
+function renderDocumentsSection(order) {
+  const links = [];
+  if (order.angebotDatei) {
+    links.push(el("a", { className: "btn", href: `${ADMIN_ORIGIN}/uploads/${order.angebotDatei}`, target: "_blank", rel: "noopener", textContent: "📄 Angebot ansehen" }));
+  }
+  if (order.rechnungDatei) {
+    links.push(el("a", { className: "btn", href: `${ADMIN_ORIGIN}/uploads/${order.rechnungDatei}`, target: "_blank", rel: "noopener", textContent: "📄 Rechnung ansehen" }));
+  }
+  if (links.length === 0) return null;
+  return el("div", { className: "order-documents-section" }, links);
+}
+
 function render(order) {
   contentEl.innerHTML = "";
 
@@ -115,6 +127,9 @@ function render(order) {
     el("p", { className: "order-total", textContent: `Gesamtsumme: ${formatPrice(order.total)}` }),
   ]);
   contentEl.appendChild(summary);
+
+  const documents = renderDocumentsSection(order);
+  if (documents) contentEl.appendChild(documents);
 
   if (order.downloadFreigegeben) {
     contentEl.appendChild(renderDownloadSection(order));

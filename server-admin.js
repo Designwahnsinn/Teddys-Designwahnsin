@@ -8,6 +8,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const FileType = require("file-type");
 const { imageSize } = require("image-size");
+const sharp = require("sharp");
 const db = require("./db");
 const sortedUploads = require("./sorted-uploads");
 
@@ -179,6 +180,32 @@ function checkImageQuality(buffer) {
   }
 }
 
+// Canva-Exporte kommen oft mit mehreren tausend Pixeln Kantenlänge, weil sie
+// auf die Druckauflösung (min. 2362x2362px, siehe MIN_PRINT_DIMENSION_PX)
+// ausgelegt sind - für die Website-Anzeige unnötig groß und langsam. Deshalb
+// zusätzlich zum unangetasteten Original (Druck-/Verkaufsdatei) ein
+// verkleinertes WebP für die öffentliche Seite erzeugen.
+const WEB_PREVIEW_MAX_DIMENSION_PX = 1600;
+const WEB_PREVIEW_QUALITY = 82;
+
+async function generatePreviewImage(buffer) {
+  try {
+    const previewFilename = `${crypto.randomUUID()}-preview.webp`;
+    await sharp(buffer)
+      .resize({
+        width: WEB_PREVIEW_MAX_DIMENSION_PX,
+        height: WEB_PREVIEW_MAX_DIMENSION_PX,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .webp({ quality: WEB_PREVIEW_QUALITY })
+      .toFile(path.join(UPLOADS_DIR, previewFilename));
+    return previewFilename;
+  } catch {
+    return null; // Vorschau ist ein "nice to have" - Original bleibt in jedem Fall nutzbar
+  }
+}
+
 async function persistUploadedImage(file) {
   const detected = await FileType.fromBuffer(file.buffer);
   if (!detected || !ALLOWED_IMAGE_MIME_TYPES.includes(detected.mime)) {
@@ -188,7 +215,33 @@ async function persistUploadedImage(file) {
   }
   const filename = `${crypto.randomUUID()}.${detected.ext}`;
   fs.writeFileSync(path.join(UPLOADS_DIR, filename), file.buffer);
-  return { filename, mime: detected.mime, qualityWarning: checkImageQuality(file.buffer) };
+  const previewFilename = await generatePreviewImage(file.buffer);
+  return { filename, previewFilename, mime: detected.mime, qualityWarning: checkImageQuality(file.buffer) };
+}
+
+// Rechnung/Angebot dürfen zusätzlich zu Bildern auch als PDF hochgeladen
+// werden (z.B. direkter Export aus sevdesk) - eigener, größerer erlaubter
+// Dateityp-Kreis als bei Design-Bildern.
+const ALLOWED_DOCUMENT_MIME_TYPES = ["application/pdf", ...ALLOWED_IMAGE_MIME_TYPES];
+const uploadDocument = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = ALLOWED_DOCUMENT_MIME_TYPES.includes(file.mimetype);
+    cb(ok ? null : new Error("Nur PDF, PNG, JPG, WEBP oder AVIF erlaubt"), ok);
+  },
+});
+
+async function persistUploadedDocument(file) {
+  const detected = await FileType.fromBuffer(file.buffer);
+  if (!detected || !ALLOWED_DOCUMENT_MIME_TYPES.includes(detected.mime)) {
+    const err = new Error("Datei-Inhalt entspricht keinem erlaubten Format (PDF oder Bild)");
+    err.status = 400;
+    throw err;
+  }
+  const filename = `${crypto.randomUUID()}.${detected.ext}`;
+  fs.writeFileSync(path.join(UPLOADS_DIR, filename), file.buffer);
+  return { filename, mime: detected.mime };
 }
 
 // Sicherer Dateiname für Downloads - keine Pfad-/Sonderzeichen aus
@@ -301,7 +354,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
 
   try {
     const [mainFile, ...extraFiles] = files;
-    const { filename, qualityWarning } = await persistUploadedImage(mainFile);
+    const { filename, previewFilename, qualityWarning } = await persistUploadedImage(mainFile);
     const design = db.addDesign({
       id: db.nextId(),
       name,
@@ -313,6 +366,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
       driveLink: driveLink || "",
       instagramLink: instagramLink || "",
       image: `/uploads/${filename}`,
+      previewImage: previewFilename ? `/uploads/${previewFilename}` : null,
       online: req.body.online !== undefined,
       qualityWarning,
       createdAt: new Date().toISOString(),
@@ -329,6 +383,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
         hintergrundVariante: false,
         bezeichnung: `Bild ${i + 2}`,
         image: `/uploads/${extra.filename}`,
+        previewImage: extra.previewFilename ? `/uploads/${extra.previewFilename}` : null,
         sichtbar: true,
         qualityWarning: extra.qualityWarning,
       });
@@ -439,7 +494,7 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10
     const images = [];
     const qualityWarnings = [];
     for (const [i, file] of files.entries()) {
-      const { filename, qualityWarning } = await persistUploadedImage(file);
+      const { filename, previewFilename, qualityWarning } = await persistUploadedImage(file);
       // Bei mehreren Dateien auf einmal braucht jede eine eigene, unterscheidbare
       // Bezeichnung, sonst sehen sie sich in der Übersicht/im Dateinamen zum Verwechseln ähnlich.
       const imageBezeichnung = files.length > 1 ? `${bezeichnung || "Bild"} ${i + 1}` : bezeichnung || "";
@@ -449,6 +504,7 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10
         hintergrundVariante,
         bezeichnung: imageBezeichnung,
         image: `/uploads/${filename}`,
+        previewImage: previewFilename ? `/uploads/${previewFilename}` : null,
         qualityWarning,
       });
       const ext = filename.split(".").pop();
@@ -509,12 +565,17 @@ app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
 app.post("/api/admin/designs/:id/images/:imageId/replace", requireAuth, upload.single("image"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Bild ist Pflichtfeld" });
   try {
-    const { filename, qualityWarning } = await persistUploadedImage(req.file);
-    const result = db.replaceDesignImage(req.params.imageId, { image: `/uploads/${filename}`, qualityWarning });
+    const { filename, previewFilename, qualityWarning } = await persistUploadedImage(req.file);
+    const result = db.replaceDesignImage(req.params.imageId, {
+      image: `/uploads/${filename}`,
+      previewImage: previewFilename ? `/uploads/${previewFilename}` : null,
+      qualityWarning,
+    });
     if (!result) return res.status(404).json({ error: "Bild nicht gefunden" });
 
     const { old, updated } = result;
     fs.unlink(path.join(UPLOADS_DIR, path.basename(old.image)), () => {});
+    if (old.previewImage) fs.unlink(path.join(UPLOADS_DIR, path.basename(old.previewImage)), () => {});
     sortedUploads.removeSorted(old.design_id, old.kategorie, old.bezeichnung, old.image.split(".").pop());
 
     const ext = filename.split(".").pop();
@@ -541,6 +602,7 @@ app.delete("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => 
     const removed = db.deleteDesignImage(req.params.imageId);
     if (!removed) return res.status(404).json({ error: "Bild nicht gefunden" });
     fs.unlink(path.join(UPLOADS_DIR, path.basename(removed.image)), () => {});
+    if (removed.previewImage) fs.unlink(path.join(UPLOADS_DIR, path.basename(removed.previewImage)), () => {});
     sortedUploads.removeSorted(removed.design_id, removed.kategorie, removed.bezeichnung, removed.image.split(".").pop());
     res.json({ ok: true });
   } catch (err) {
@@ -704,6 +766,33 @@ app.post("/api/admin/orders/:id/regenerate-token", requireAuth, (req, res) => {
   res.json(updated);
 });
 
+// Rechnung/Angebot hochladen (bzw. ersetzen - alte Datei wird dabei entfernt).
+// Beide Routen sind bewusst identisch aufgebaut, nur das Zielfeld unterscheidet sich.
+async function handleOrderFileUpload(req, res, field) {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Keine Datei hochgeladen" });
+    const order = db.getOrder(Number(req.params.id));
+    if (!order) return res.status(404).json({ error: "Bestellung nicht gefunden" });
+
+    const { filename } = await persistUploadedDocument(req.file);
+    if (order[field]) {
+      fs.unlink(path.join(UPLOADS_DIR, path.basename(order[field])), () => {});
+    }
+    const updated = db.setOrderFile(order.id, field, filename);
+    res.json(updated);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}
+
+app.post("/api/admin/orders/:id/rechnung", requireAuth, uploadDocument.single("datei"), (req, res) =>
+  handleOrderFileUpload(req, res, "rechnung_datei")
+);
+
+app.post("/api/admin/orders/:id/angebot", requireAuth, uploadDocument.single("datei"), (req, res) =>
+  handleOrderFileUpload(req, res, "angebot_datei")
+);
+
 app.delete("/api/admin/orders/:id", requireAuth, (req, res) => {
   const removed = db.deleteOrder(Number(req.params.id));
   if (!removed) return res.status(404).json({ error: "Bestellung nicht gefunden" });
@@ -754,9 +843,9 @@ function isOrderTokenExpired(order) {
 function pickPreviewImage(designId) {
   const images = db.getDesignImages(designId);
   const hauptbild = images.find((img) => img.ist_hauptbild && img.wasserzeichen);
-  if (hauptbild) return hauptbild.image;
+  if (hauptbild) return hauptbild.previewImage || hauptbild.image;
   const anyWatermarked = images.find((img) => img.wasserzeichen);
-  return anyWatermarked ? anyWatermarked.image : null;
+  return anyWatermarked ? anyWatermarked.previewImage || anyWatermarked.image : null;
 }
 
 app.options("/api/public/order/:token", publicCors);
@@ -777,15 +866,21 @@ app.get("/api/public/order/:token", publicCors, orderPortalViewLimiter, (req, re
       : [],
   }));
 
+  // Rechnung/Angebot sind keine sensiblen Verkaufsgüter (im Gegensatz zu den
+  // wasserzeichenfreien Design-Dateien) - deshalb schon ab Bestätigung sichtbar,
+  // unabhängig vom separaten download_freigegeben-Schalter für die Designs.
+  const confirmed = !!order.terms_confirmed_at;
   res.json({
     kunde_name: order.kunde_name,
     designs,
     total: designs.reduce((sum, d) => sum + (d.price || 0), 0),
-    confirmed: !!order.terms_confirmed_at,
+    confirmed,
     confirmedAt: order.terms_confirmed_at,
     downloadFreigegeben: !!order.download_freigegeben,
     status: order.status,
     termsText: ORDER_PORTAL_TERMS_TEXT,
+    rechnungDatei: confirmed ? order.rechnung_datei || null : null,
+    angebotDatei: confirmed ? order.angebot_datei || null : null,
   });
 });
 
@@ -843,6 +938,36 @@ function resolveNasPath(relativePath) {
   return target;
 }
 
+const NAS_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".avif"];
+
+// Sucht rekursiv (max. 3 Ebenen) nach einem repräsentativen Bild für einen
+// Ordner, bevorzugt das Hauptbild unter "Mit Wasserzeichen" - damit man in
+// der Ordnerübersicht auf einen Blick erkennt, was ein Design-Ordner enthält.
+function findNasPreviewImage(absoluteDirPath) {
+  const candidates = [];
+  function scan(dir, depth) {
+    if (depth > 3) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        scan(full, depth + 1);
+      } else if (NAS_IMAGE_EXTENSIONS.some((ext) => e.name.toLowerCase().endsWith(ext))) {
+        candidates.push(full);
+      }
+    }
+  }
+  scan(absoluteDirPath, 0);
+  const hauptbild = candidates.find((c) => /Mit Wasserzeichen[\\/]/.test(c) && /hauptbild/i.test(path.basename(c)));
+  const chosen = hauptbild || candidates[0];
+  return chosen ? path.relative(NAS_ROOT, chosen).split(path.sep).join("/") : null;
+}
+
 app.get("/api/admin/nas-browse", requireAuth, (req, res) => {
   try {
     const dir = resolveNasPath(req.query.path || "");
@@ -851,7 +976,11 @@ app.get("/api/admin/nas-browse", requireAuth, (req, res) => {
     }
     const entries = fs
       .readdirSync(dir, { withFileTypes: true })
-      .map((e) => ({ name: e.name, type: e.isDirectory() ? "dir" : "file" }))
+      .map((e) => ({
+        name: e.name,
+        type: e.isDirectory() ? "dir" : "file",
+        previewImage: e.isDirectory() ? findNasPreviewImage(path.join(dir, e.name)) : null,
+      }))
       .sort((a, b) => (a.type !== b.type ? (a.type === "dir" ? -1 : 1) : a.name.localeCompare(b.name, "de")));
     res.json({ path: req.query.path || "", entries });
   } catch (err) {

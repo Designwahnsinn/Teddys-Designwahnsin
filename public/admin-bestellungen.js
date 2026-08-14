@@ -3,6 +3,7 @@ const rowsEl = document.getElementById("order-rows");
 const emptyEl = document.getElementById("order-empty");
 
 const STATUS_FILTERS = ["Alle", "Offen", "In Bearbeitung", "Erledigt", "Storniert"];
+const STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt", "Storniert"];
 const STEP_LABELS = {
   schritt_rechnung: "Rechnung erstellen",
   schritt_bezahlung: "Auf Bezahlung warten",
@@ -71,6 +72,25 @@ async function loadOrders() {
 
     const contactIcon = order.kontakt_praeferenz === "WhatsApp" ? "💬 WhatsApp" : "📧 E-Mail";
 
+    const confirmBadge = el("span", {
+      className: order.terms_confirmed_at ? "confirm-badge confirm-yes" : "confirm-badge confirm-no",
+      textContent: order.terms_confirmed_at ? "✅ Bestätigt" : "⏳ Ausstehend",
+      title: order.terms_confirmed_at ? `Bestätigt am ${formatDate(order.terms_confirmed_at)}` : "Kunde hat noch nicht bestätigt",
+    });
+
+    const statusSelect = el("select", { className: "status-select" });
+    STATUS_VALUES.forEach((s) => {
+      statusSelect.appendChild(el("option", { value: s, textContent: s, selected: s === order.status }));
+    });
+    statusSelect.addEventListener("click", (e) => e.stopPropagation());
+    statusSelect.addEventListener("change", async () => {
+      await fetch(`/api/admin/orders/${order.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: statusSelect.value }),
+      });
+    });
+
     row.append(
       el("td", {}, [
         el("strong", { textContent: order.kunde_name }),
@@ -80,7 +100,8 @@ async function loadOrders() {
       el("td", { textContent: order.designs.map((d) => d.name).join(", ") || "–" }),
       el("td", { textContent: currentStepLabel(order) }),
       el("td", { textContent: formatDate(order.bestelldatum) }),
-      el("td", {}, [el("span", { className: `status-badge status-${order.status.replace(/\s+/g, "-").toLowerCase()}`, textContent: order.status })]),
+      el("td", {}, [confirmBadge]),
+      el("td", {}, [statusSelect]),
       el("td", {}, [editLink])
     );
     rowsEl.appendChild(row);

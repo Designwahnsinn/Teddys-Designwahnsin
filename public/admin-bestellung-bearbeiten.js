@@ -3,14 +3,24 @@ const panelEl = document.getElementById("edit-panel");
 
 const STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt", "Storniert"];
 const KONTAKT_PRAEFERENZ_VALUES = ["E-Mail", "WhatsApp"];
+// Die meisten Schritt-Label funktionieren als Checkbox-Beschriftung in beiden
+// Zuständen ("Rechnung erstellt" liest sich auch unmarkiert noch sinnvoll als
+// Handlungsbeschreibung). "Auf Bezahlung warten"/"gewartet" nicht - deshalb
+// dort ein {todo, done}-Paar statt eines starren Texts.
 const STEP_LABELS = {
   schritt_rechnung: "Rechnung erstellt",
-  schritt_bezahlung: "Auf Bezahlung gewartet",
+  schritt_bezahlung: { todo: "Auf Bezahlung warten", done: "Ist bezahlt" },
   schritt_download: "Design(s) heruntergeladen",
   schritt_email_vorbereitet: "E-Mail vorbereitet",
   schritt_verschickt: "Als verschickt markiert",
   schritt_datei_geloescht: "Datei(en) lokal gelöscht",
 };
+
+function stepLabelFor(key, done) {
+  const label = STEP_LABELS[key];
+  if (typeof label === "string") return label;
+  return done ? label.done : label.todo;
+}
 
 const orderId = new URLSearchParams(window.location.search).get("id");
 const PUBLIC_ORIGIN = "https://designwahnsinn-teddy.de";
@@ -61,8 +71,12 @@ function render(order, allDesigns) {
     statusSelect.appendChild(el("option", { value: s, textContent: s, selected: s === order.status }));
   });
 
-  // --- Notiz ---
-  const notizInput = el("textarea", { rows: 3, value: order.notiz || "" });
+  // --- Notiz (v.a. für Designs, die es noch nicht im System gibt, z.B. nur auf Instagram) ---
+  const notizInput = el("textarea", {
+    rows: 3,
+    value: order.notiz || "",
+    placeholder: "z. B. weiteres Design von Instagram gewünscht, noch nicht hochgeladen …",
+  });
 
   // --- Designs (alle, auch bereits verkaufte, damit historische Zuordnungen sichtbar bleiben) ---
   const designList = el("div", { className: "wizard-design-list" });
@@ -82,10 +96,14 @@ function render(order, allDesigns) {
   // --- Schritte, frei an-/abhakbar ---
   const stepCheckboxes = new Map();
   const stepsList = el("div", { className: "wizard-design-list" });
-  Object.entries(STEP_LABELS).forEach(([key, label]) => {
+  Object.keys(STEP_LABELS).forEach((key) => {
     const checkbox = el("input", { type: "checkbox", checked: Boolean(order[key]) });
+    const labelSpan = el("span", { textContent: stepLabelFor(key, checkbox.checked) });
+    checkbox.addEventListener("change", () => {
+      labelSpan.textContent = stepLabelFor(key, checkbox.checked);
+    });
     stepCheckboxes.set(key, checkbox);
-    stepsList.appendChild(el("label", { className: "wizard-design-row" }, [checkbox, el("span", { textContent: label })]));
+    stepsList.appendChild(el("label", { className: "wizard-design-row" }, [checkbox, labelSpan]));
   });
 
   const saveBtn = el("button", { type: "button", textContent: "Speichern" });
@@ -191,9 +209,9 @@ function render(order, allDesigns) {
     el("label", { textContent: "WhatsApp-Nummer" }), whatsappInput,
     el("label", { textContent: "Kontaktpräferenz" }), praeferenzSelect,
     el("label", { textContent: "Status" }), statusSelect,
-    el("label", { textContent: "Notiz" }), notizInput,
     el("h2", { textContent: "Zugeordnete Designs" }),
     designList,
+    el("label", { textContent: "Notiz (auch für Designs, die es noch nicht im System gibt)" }), notizInput,
     el("h2", { textContent: "Schritte" }),
     stepsList,
     el("h2", { textContent: "Order-Portal (Kunden-Bestätigungsseite)" }),

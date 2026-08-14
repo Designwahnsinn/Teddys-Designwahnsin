@@ -267,7 +267,8 @@
 .nas-row:last-child { border-bottom: none; }
 .nas-row:hover { background: rgba(47, 174, 74, 0.06); }
 .nas-row.nas-dir { font-weight: 600; }
-.nas-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.nas-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.nas-thumb-dir { width: 64px; height: 64px; }
 .admin-card .card-actions {
   display: flex;
   gap: 0.5rem;
@@ -421,6 +422,17 @@
 .status-erledigt { background: #dff5e3; color: #2d7a4f; }
 .status-storniert { background: #f4d6d6; color: #a12b2b; }
 
+.confirm-badge {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.confirm-badge.confirm-yes { background: #dff5e3; color: #2d7a4f; }
+.confirm-badge.confirm-no { background: #f0f0f0; color: var(--muted); }
+
 /* Bestellungen: Wizard */
 .wizard-progress {
   display: flex;
@@ -441,6 +453,8 @@
 .wizard-step.done { background: var(--accent); border-color: var(--accent); color: #fff; }
 .wizard-step.current { border-color: var(--accent-2); color: var(--text); background: #fff3e0; }
 .wizard-step.pending { opacity: 0.6; }
+.wizard-step-clickable { cursor: pointer; }
+.wizard-step-clickable:hover { opacity: 1; border-color: var(--accent-2); }
 
 .wizard-panel {
   background: var(--bg-alt);

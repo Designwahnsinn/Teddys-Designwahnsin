@@ -37,15 +37,32 @@ function formatPrice(price) {
   return price != null ? `${Number(price).toFixed(2)} €` : "";
 }
 
+// Designs-Schritt gilt auch als erledigt, wenn (noch) kein echtes Design im
+// System zugeordnet ist, aber eine Notiz zu noch nicht hochgeladenen Designs
+// hinterlegt wurde - sonst kommt man mit reinen Instagram-Anfragen nie weiter.
 function isStepDone(order, key) {
   if (key === "kunde") return true;
-  if (key === "designs") return order.designs.length > 0;
+  if (key === "designs") return order.designs.length > 0 || Boolean(order.notiz);
   if (key === "complete") return order.status === "Erledigt";
   return Boolean(order[key]);
 }
 
 function nextIncompleteStep(order) {
   return PROGRESS_STEPS.find((s) => !isStepDone(order, s.key));
+}
+
+// Klick auf einen Progress-Schritt springt direkt dorthin, unabhängig vom
+// tatsächlichen Fortschritt - man kann sich jeden Schritt ansehen. Ein
+// "erledigt"-Klick auf einen noch nicht erreichbaren Schritt scheitert
+// weiterhin an der serverseitigen Reihenfolge-Prüfung in advanceOrderStep.
+function jumpToStep(order, key) {
+  if (key === "designs") {
+    renderStep2DesignPicker(order);
+  } else if (key === "complete") {
+    renderCompleteStep(order);
+  } else if (STEP_ORDER.includes(key)) {
+    renderStepAction(order, key);
+  }
 }
 
 function renderProgress(order) {
@@ -63,7 +80,12 @@ function renderProgress(order) {
     const done = isStepDone(order, s.key);
     const isCurrent = current && current.key === s.key;
     const className = done ? "wizard-step done" : isCurrent ? "wizard-step current" : "wizard-step pending";
-    progressEl.appendChild(el("li", { className, textContent: s.label }));
+    const clickable = s.key !== "kunde";
+    const li = el("li", { className: clickable ? `${className} wizard-step-clickable` : className, textContent: s.label });
+    if (clickable) {
+      li.addEventListener("click", () => jumpToStep(order, s.key));
+    }
+    progressEl.appendChild(li);
   });
 }
 
@@ -279,6 +301,40 @@ function renderPortalLinkBanner(order) {
   ]);
 }
 
+// Datei-Upload-Block für Rechnung/Angebot im Rechnung-Schritt - beide Felder
+// nutzen dieselbe Logik, nur Zielfeld/Route unterscheiden sich.
+function renderFileUploadBlock(order, { field, label, route }) {
+  const currentFile = order[field];
+  const fileInput = el("input", { type: "file", accept: "application/pdf,image/png,image/jpeg,image/webp,image/avif" });
+  const status = el("span", { className: "muted" });
+  const uploadBtn = el("button", { type: "button", textContent: currentFile ? "Ersetzen" : "Hochladen" });
+  uploadBtn.addEventListener("click", async () => {
+    if (!fileInput.files[0]) {
+      status.textContent = "Bitte zuerst eine Datei auswählen.";
+      return;
+    }
+    status.textContent = "Lädt hoch …";
+    const formData = new FormData();
+    formData.append("datei", fileInput.files[0]);
+    const res = await fetch(`/api/admin/orders/${order.id}/${route}`, { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) {
+      status.textContent = data.error || "Fehler beim Hochladen.";
+      return;
+    }
+    renderStepAction(data, "schritt_rechnung");
+  });
+
+  const rows = [el("label", { textContent: label })];
+  if (currentFile) {
+    rows.push(el("p", {}, [
+      el("a", { href: `/uploads/${currentFile}`, target: "_blank", rel: "noopener", textContent: "📄 Aktuelle Datei ansehen" }),
+    ]));
+  }
+  rows.push(el("div", { className: "card-actions" }, [fileInput, uploadBtn, status]));
+  return el("div", { className: "wizard-panel-hint" }, rows);
+}
+
 function renderStepAction(order, stepKey) {
   titleEl.textContent = `Bestellung #${order.id} – ${order.kunde_name}`;
   renderProgress(order);
@@ -303,6 +359,8 @@ function renderStepAction(order, stepKey) {
       el("ul", {}, order.designs.map((d) => el("li", { textContent: `${d.id} · ${d.name} · ${formatPrice(d.price)}` }))),
       el("p", { textContent: `Gesamtsumme: ${formatPrice(totalPrice(order))}` }),
       el("p", { className: "wizard-hint", textContent: "Rechnung mit diesen Eckdaten manuell in sevdesk anlegen." }),
+      renderFileUploadBlock(order, { field: "angebot_datei", label: "Angebot (optional)", route: "angebot" }),
+      renderFileUploadBlock(order, { field: "rechnung_datei", label: "Rechnung", route: "rechnung" }),
       errorMsg,
       el("button", { type: "button", textContent: "Rechnung erstellt – weiter", onclick: () => runStep() })
     );
@@ -413,7 +471,10 @@ function renderDoneSummary(order) {
 }
 
 function renderForOrder(order) {
-  if (order.designs.length === 0) {
+  // Mit Notiz zu noch nicht hochgeladenen Designs darf man auch ohne
+  // zugeordnetes Design weiter zu Schritt 3 - sonst Sackgasse bei reinen
+  // Instagram-Anfragen ohne bestehendes Design im System.
+  if (order.designs.length === 0 && !order.notiz) {
     renderStep2DesignPicker(order);
     return;
   }

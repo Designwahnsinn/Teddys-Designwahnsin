@@ -46,15 +46,13 @@ form.addEventListener("submit", async (e) => {
   if (res.ok) {
     const data = await res.json();
     if (data.qualityWarnings && data.qualityWarnings.length > 0) {
-      message.textContent = `Design hochgeladen. ⚠️ ${data.qualityWarnings.join(" | ")}`;
+      message.textContent = `Design hochgeladen. ⚠️ ${data.qualityWarnings.join(" | ")} Weiter zur Bilder-Zuordnung …`;
       message.className = "warning";
     } else {
-      message.textContent = "Design hochgeladen.";
+      message.textContent = "Design hochgeladen. Weiter zur Bilder-Zuordnung …";
       message.className = "success";
     }
-    form.reset();
-    filePreview.innerHTML = "";
-    loadNextId();
+    window.location.href = `/mitarbeiter/designs/bilder?id=${data.id}`;
   } else {
     const data = await res.json().catch(() => ({}));
     message.textContent = data.error || "Fehler beim Hochladen.";
