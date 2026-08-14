@@ -100,7 +100,11 @@ if (!SITE_LIVE) {
       ALLOWED_PATHS_WHILE_NOT_LIVE.includes(req.path) ||
       req.path.startsWith("/images/") ||
       req.path.startsWith("/uploads/") ||
-      req.path.startsWith("/bestellung/")
+      // Ohne Trailing-Slash, damit auch die von /bestellung/:token verlinkten
+      // Assets (bestellung.js, bestellung.css) durchgelassen werden - mit
+      // "/bestellung/" allein wurden die geblockt und die Seite hing für
+      // Kunden dauerhaft bei "Lädt ..." fest, weil das Skript nie ausgeführt wurde.
+      req.path.startsWith("/bestellung")
     ) {
       return next();
     }
