@@ -44,6 +44,15 @@ function renderDownloadSection(order) {
   const wrap = el("div", { className: "order-download-section" }, [
     el("h2", { textContent: "🎉 Deine Dateien sind bereit" }),
   ]);
+  if (order.rechnungDatei) {
+    wrap.appendChild(el("a", {
+      className: "btn",
+      href: `${ADMIN_ORIGIN}/uploads/${order.rechnungDatei}`,
+      target: "_blank",
+      rel: "noopener",
+      textContent: "📄 Rechnung ansehen",
+    }));
+  }
   order.designs.forEach((d) => {
     if (d.deliverables.length === 0) return;
     const row = el("div", { className: "order-download-row" }, [
@@ -106,16 +115,15 @@ function renderConfirmForm(order) {
   return form;
 }
 
-function renderDocumentsSection(order) {
-  const links = [];
-  if (order.angebotDatei) {
-    links.push(el("a", { className: "btn", href: `${ADMIN_ORIGIN}/uploads/${order.angebotDatei}`, target: "_blank", rel: "noopener", textContent: "📄 Angebot ansehen" }));
-  }
-  if (order.rechnungDatei) {
-    links.push(el("a", { className: "btn", href: `${ADMIN_ORIGIN}/uploads/${order.rechnungDatei}`, target: "_blank", rel: "noopener", textContent: "📄 Rechnung ansehen" }));
-  }
-  if (links.length === 0) return null;
-  return el("div", { className: "order-documents-section" }, links);
+// Das Angebot muss die Kundin schon sehen können, BEVOR sie bestätigt - sie
+// soll ja genau anhand des Angebots entscheiden. Die Rechnung gehört
+// inhaltlich zu den Design-Dateien und wird daher in renderDownloadSection
+// zusammen mit ihnen gezeigt, nicht hier.
+function renderAngebotSection(order) {
+  if (!order.angebotDatei) return null;
+  return el("div", { className: "order-documents-section" }, [
+    el("a", { className: "btn", href: `${ADMIN_ORIGIN}/uploads/${order.angebotDatei}`, target: "_blank", rel: "noopener", textContent: "📄 Angebot ansehen" }),
+  ]);
 }
 
 function render(order) {
@@ -128,8 +136,8 @@ function render(order) {
   ]);
   contentEl.appendChild(summary);
 
-  const documents = renderDocumentsSection(order);
-  if (documents) contentEl.appendChild(documents);
+  const angebot = renderAngebotSection(order);
+  if (angebot) contentEl.appendChild(angebot);
 
   if (order.downloadFreigegeben) {
     contentEl.appendChild(renderDownloadSection(order));

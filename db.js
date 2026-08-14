@@ -8,25 +8,24 @@ const DB_FILE = path.join(DATA_DIR, "teddys.db");
 const LEGACY_DESIGNS_FILE = path.join(DATA_DIR, "designs.json");
 const LEGACY_CATEGORIES_FILE = path.join(DATA_DIR, "categories.json");
 
-// Wasserzeichen (ja/nein) und Hintergrund-Variante (ja/nein) sind zwei
-// unabhängige Eigenschaften eines Bilds - kategorieLabel() erzeugt daraus eine
-// lesbare Anzeige-/Ordner-Bezeichnung (u.a. für die sortierte NAS-Ablage).
-function kategorieLabel(wasserzeichen, hintergrundVariante) {
-  if (hintergrundVariante) {
-    return wasserzeichen ? "Hintergrund-Variante (Mit Wasserzeichen)" : "Hintergrund-Variante (Ohne Wasserzeichen)";
-  }
-  return wasserzeichen ? "Mit Wasserzeichen" : "Ohne Wasserzeichen";
-}
-
-// Feingranulare Klassifizierung eines Bilds, ersetzt in der Bilder-verwalten-UI
-// das frühere reine Ja/Nein-Häkchen "Hintergrund-Variante". hintergrundVariante
-// bleibt als abgeleiteter Boolean bestehen (wird u.a. für kategorieLabel/die
-// sortierte NAS-Ordner-Ablage gebraucht) - er ist nur bei "Hintergrund-Variante"
-// und "Hintergrund" wahr, bei allen anderen Typen (auch den Motiv-Varianten,
-// die ein anderes Motiv und keine Hintergrund-Variation sind) falsch.
+// Feingranulare Klassifizierung eines Bilds (löst das frühere reine Ja/Nein-
+// Häkchen "Hintergrund-Variante" in der Bilder-verwalten-UI ab).
 const IMAGE_TYP_VALUES = ["Design", "Hintergrund-Variante", "Hintergrund", "Motiv 1", "Motiv 2", "Motiv 3", "sonstiges"];
 function typImpliesHintergrundVariante(typ) {
   return typ === "Hintergrund-Variante" || typ === "Hintergrund";
+}
+
+// kategorieLabel() erzeugt aus Wasserzeichen + Typ eine lesbare Anzeige-/
+// Ordner-Bezeichnung, u.a. für die sortierte NAS-Ablage (uploads-sorted/) -
+// so tauchen z.B. "Motiv 2"-Bilder auch dort in einem eigenen "Motiv 2 (Mit
+// Wasserzeichen)"-Ordner auf statt ununterscheidbar im allgemeinen
+// "Mit Wasserzeichen"-Ordner zu landen. "Design" (der Normalfall, keine
+// besondere Variante) bzw. kein Typ ergibt weiterhin die kurze alte Form
+// ohne Klammerzusatz, damit bestehende Ordner nicht unnötig umbenannt werden.
+function kategorieLabel(wasserzeichen, typ) {
+  const wz = wasserzeichen ? "Mit Wasserzeichen" : "Ohne Wasserzeichen";
+  if (!typ || typ === "Design") return wz;
+  return `${typ} (${wz})`;
 }
 
 const DEFAULT_CATEGORIES = [
@@ -221,8 +220,8 @@ function backfillDesignImages() {
   `).all();
 
   const insert = db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, sichtbar, ist_hauptbild, createdAt)
-    VALUES (?, 'Mit Wasserzeichen', 'Hauptbild', ?, 1, 1, ?)
+    INSERT INTO design_images (design_id, kategorie, typ, bezeichnung, image, sichtbar, ist_hauptbild, createdAt)
+    VALUES (?, 'Mit Wasserzeichen', 'Design', 'Hauptbild', ?, 1, 1, ?)
   `);
   const insertMany = db.transaction((rows) => {
     for (const d of rows) insert.run(d.id, d.image, new Date().toISOString());
@@ -320,8 +319,8 @@ function addDesign(design) {
     createdAt: design.createdAt,
   });
   db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, createdAt)
-    VALUES (?, 'Mit Wasserzeichen', 'Hauptbild', ?, ?, 1, 1, ?, ?)
+    INSERT INTO design_images (design_id, kategorie, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, createdAt)
+    VALUES (?, 'Mit Wasserzeichen', 'Design', 'Hauptbild', ?, ?, 1, 1, ?, ?)
   `).run(design.id, design.image, design.previewImage || null, design.qualityWarning || null, design.createdAt);
   return db.prepare("SELECT * FROM designs WHERE id = ?").get(design.id);
 }
@@ -398,7 +397,7 @@ function addDesignImage({ design_id, wasserzeichen, typ, bezeichnung, image, pre
   const info = db.prepare(`
     INSERT INTO design_images (design_id, kategorie, wasserzeichen, hintergrundVariante, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, createdAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-  `).run(design_id, kategorieLabel(wz, hg), wz, hg, typ || null, bezeichnung || "", image, previewImage || null, sichtbar ? 1 : 0, qualityWarning || null, new Date().toISOString());
+  `).run(design_id, kategorieLabel(wz, typ), wz, hg, typ || null, bezeichnung || "", image, previewImage || null, sichtbar ? 1 : 0, qualityWarning || null, new Date().toISOString());
   return db.prepare("SELECT * FROM design_images WHERE id = ?").get(info.lastInsertRowid);
 }
 
@@ -435,7 +434,7 @@ function setDesignImageEigenschaften(imageId, { wasserzeichen, typ }) {
   const newTyp = typ === undefined ? existing.typ : typ;
   const hg = typ === undefined ? existing.hintergrundVariante : (typImpliesHintergrundVariante(typ) ? 1 : 0);
   db.prepare("UPDATE design_images SET wasserzeichen = ?, hintergrundVariante = ?, typ = ?, kategorie = ? WHERE id = ?")
-    .run(wz, hg, newTyp, kategorieLabel(wz, hg), imageId);
+    .run(wz, hg, newTyp, kategorieLabel(wz, newTyp), imageId);
   return { old: existing, updated: db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId) };
 }
 

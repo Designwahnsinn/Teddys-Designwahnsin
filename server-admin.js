@@ -868,21 +868,22 @@ app.get("/api/public/order/:token", publicCors, orderPortalViewLimiter, (req, re
       : [],
   }));
 
-  // Rechnung/Angebot sind keine sensiblen Verkaufsgüter (im Gegensatz zu den
-  // wasserzeichenfreien Design-Dateien) - deshalb schon ab Bestätigung sichtbar,
-  // unabhängig vom separaten download_freigegeben-Schalter für die Designs.
-  const confirmed = !!order.terms_confirmed_at;
+  // Angebot muss die Kundin schon VOR der Bestätigung sehen können - genau
+  // das soll sie ja gerade entscheiden lassen, ob sie bestätigt. Die Rechnung
+  // gehört dagegen inhaltlich zu den Design-Dateien (sie bekommt beides
+  // zusammen zum Abschluss) und ist daher an denselben download_freigegeben-
+  // Schalter gekoppelt wie die Verkaufsdateien, nicht an die Bestätigung.
   res.json({
     kunde_name: order.kunde_name,
     designs,
     total: designs.reduce((sum, d) => sum + (d.price || 0), 0),
-    confirmed,
+    confirmed: !!order.terms_confirmed_at,
     confirmedAt: order.terms_confirmed_at,
     downloadFreigegeben: !!order.download_freigegeben,
     status: order.status,
     termsText: ORDER_PORTAL_TERMS_TEXT,
-    rechnungDatei: confirmed ? order.rechnung_datei || null : null,
-    angebotDatei: confirmed ? order.angebot_datei || null : null,
+    angebotDatei: order.angebot_datei || null,
+    rechnungDatei: order.download_freigegeben ? order.rechnung_datei || null : null,
   });
 });
 
