@@ -18,6 +18,17 @@ function kategorieLabel(wasserzeichen, hintergrundVariante) {
   return wasserzeichen ? "Mit Wasserzeichen" : "Ohne Wasserzeichen";
 }
 
+// Feingranulare Klassifizierung eines Bilds, ersetzt in der Bilder-verwalten-UI
+// das frühere reine Ja/Nein-Häkchen "Hintergrund-Variante". hintergrundVariante
+// bleibt als abgeleiteter Boolean bestehen (wird u.a. für kategorieLabel/die
+// sortierte NAS-Ordner-Ablage gebraucht) - er ist nur bei "Hintergrund-Variante"
+// und "Hintergrund" wahr, bei allen anderen Typen (auch den Motiv-Varianten,
+// die ein anderes Motiv und keine Hintergrund-Variation sind) falsch.
+const IMAGE_TYP_VALUES = ["Design", "Hintergrund-Variante", "Hintergrund", "Motiv 1", "Motiv 2", "Motiv 3", "sonstiges"];
+function typImpliesHintergrundVariante(typ) {
+  return typ === "Hintergrund-Variante" || typ === "Hintergrund";
+}
+
 const DEFAULT_CATEGORIES = [
   "Tiere",
   "Blumen / Natur",
@@ -139,6 +150,7 @@ ensureColumn("design_images", "qualityWarning", "TEXT");
 // unangetastet für den Druck/die Verkaufsdatei erhalten. NULL = altes Bild von
 // vor Einführung dieses Features, Fallback bleibt das Original.
 ensureColumn("design_images", "previewImage", "TEXT");
+ensureColumn("design_images", "typ", "TEXT");
 ensureColumn("orders", "kunde_instagram", "TEXT");
 ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
@@ -380,13 +392,13 @@ function getDesignImages(designId) {
   return db.prepare("SELECT * FROM design_images WHERE design_id = ? ORDER BY rowid ASC").all(designId);
 }
 
-function addDesignImage({ design_id, wasserzeichen, hintergrundVariante, bezeichnung, image, previewImage, sichtbar, qualityWarning }) {
+function addDesignImage({ design_id, wasserzeichen, typ, bezeichnung, image, previewImage, sichtbar, qualityWarning }) {
   const wz = wasserzeichen ? 1 : 0;
-  const hg = hintergrundVariante ? 1 : 0;
+  const hg = typImpliesHintergrundVariante(typ) ? 1 : 0;
   const info = db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, wasserzeichen, hintergrundVariante, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-  `).run(design_id, kategorieLabel(wz, hg), wz, hg, bezeichnung || "", image, previewImage || null, sichtbar ? 1 : 0, qualityWarning || null, new Date().toISOString());
+    INSERT INTO design_images (design_id, kategorie, wasserzeichen, hintergrundVariante, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+  `).run(design_id, kategorieLabel(wz, hg), wz, hg, typ || null, bezeichnung || "", image, previewImage || null, sichtbar ? 1 : 0, qualityWarning || null, new Date().toISOString());
   return db.prepare("SELECT * FROM design_images WHERE id = ?").get(info.lastInsertRowid);
 }
 
@@ -416,13 +428,14 @@ function setDesignImageVisibility(imageId, sichtbar) {
 // statt "Ohne Wasserzeichen" gewählt) - gibt die alte Zeile mit zurück, damit
 // der Aufrufer die sortierte Ablage (uploads-sorted/) in den neuen
 // Kategorie-Ordner verschieben kann.
-function setDesignImageEigenschaften(imageId, { wasserzeichen, hintergrundVariante }) {
+function setDesignImageEigenschaften(imageId, { wasserzeichen, typ }) {
   const existing = db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
   if (!existing) return null;
   const wz = wasserzeichen === undefined ? existing.wasserzeichen : (wasserzeichen ? 1 : 0);
-  const hg = hintergrundVariante === undefined ? existing.hintergrundVariante : (hintergrundVariante ? 1 : 0);
-  db.prepare("UPDATE design_images SET wasserzeichen = ?, hintergrundVariante = ?, kategorie = ? WHERE id = ?")
-    .run(wz, hg, kategorieLabel(wz, hg), imageId);
+  const newTyp = typ === undefined ? existing.typ : typ;
+  const hg = typ === undefined ? existing.hintergrundVariante : (typImpliesHintergrundVariante(typ) ? 1 : 0);
+  db.prepare("UPDATE design_images SET wasserzeichen = ?, hintergrundVariante = ?, typ = ?, kategorie = ? WHERE id = ?")
+    .run(wz, hg, newTyp, kategorieLabel(wz, hg), imageId);
   return { old: existing, updated: db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId) };
 }
 
@@ -712,6 +725,7 @@ module.exports = {
   updateDesign,
   deleteDesign,
   renameDesignId,
+  IMAGE_TYP_VALUES,
   getCategories,
   addCategory,
   renameCategory,

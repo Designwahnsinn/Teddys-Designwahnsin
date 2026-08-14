@@ -380,7 +380,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
       db.addDesignImage({
         design_id: design.id,
         wasserzeichen: true,
-        hintergrundVariante: false,
+        typ: "Design",
         bezeichnung: `Bild ${i + 2}`,
         image: `/uploads/${extra.filename}`,
         previewImage: extra.previewFilename ? `/uploads/${extra.previewFilename}` : null,
@@ -482,9 +482,11 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10
   const design = db.getDesign(req.params.id);
   if (!design) return res.status(404).json({ error: "Design nicht gefunden" });
 
-  const { bezeichnung } = req.body;
+  const { bezeichnung, typ } = req.body;
   const wasserzeichen = req.body.wasserzeichen === "true" || req.body.wasserzeichen === "on";
-  const hintergrundVariante = req.body.hintergrundVariante === "true" || req.body.hintergrundVariante === "on";
+  if (typ !== undefined && !db.IMAGE_TYP_VALUES.includes(typ)) {
+    return res.status(400).json({ error: "Ungültiger Bildtyp" });
+  }
   const files = req.files || [];
   if (files.length === 0) {
     return res.status(400).json({ error: "Mindestens ein Bild ist Pflichtfeld" });
@@ -501,7 +503,7 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10
       const image = db.addDesignImage({
         design_id: req.params.id,
         wasserzeichen,
-        hintergrundVariante,
+        typ: typ || "Design",
         bezeichnung: imageBezeichnung,
         image: `/uploads/${filename}`,
         previewImage: previewFilename ? `/uploads/${previewFilename}` : null,
@@ -519,9 +521,9 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10
 });
 
 app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
-  const { sichtbar, wasserzeichen, hintergrundVariante } = req.body;
-  if (sichtbar === undefined && wasserzeichen === undefined && hintergrundVariante === undefined) {
-    return res.status(400).json({ error: "sichtbar, wasserzeichen oder hintergrundVariante ist Pflichtfeld" });
+  const { sichtbar, wasserzeichen, typ } = req.body;
+  if (sichtbar === undefined && wasserzeichen === undefined && typ === undefined) {
+    return res.status(400).json({ error: "sichtbar, wasserzeichen oder typ ist Pflichtfeld" });
   }
 
   let updated = null;
@@ -533,14 +535,14 @@ app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
     if (!updated) return res.status(404).json({ error: "Bild nicht gefunden" });
   }
 
-  if (wasserzeichen !== undefined || hintergrundVariante !== undefined) {
+  if (wasserzeichen !== undefined || typ !== undefined) {
     if (wasserzeichen !== undefined && typeof wasserzeichen !== "boolean") {
       return res.status(400).json({ error: "wasserzeichen muss ein boolean sein" });
     }
-    if (hintergrundVariante !== undefined && typeof hintergrundVariante !== "boolean") {
-      return res.status(400).json({ error: "hintergrundVariante muss ein boolean sein" });
+    if (typ !== undefined && !db.IMAGE_TYP_VALUES.includes(typ)) {
+      return res.status(400).json({ error: "Ungültiger Bildtyp" });
     }
-    const result = db.setDesignImageEigenschaften(req.params.imageId, { wasserzeichen, hintergrundVariante });
+    const result = db.setDesignImageEigenschaften(req.params.imageId, { wasserzeichen, typ });
     if (!result) return res.status(404).json({ error: "Bild nicht gefunden" });
     const { old: previous, updated: afterUpdate } = result;
     updated = afterUpdate;

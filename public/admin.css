@@ -144,13 +144,6 @@
 .online-toggle-field input { width: auto; }
 .checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; }
 .checkbox-label input { width: auto; }
-.hintergrund-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 0.4rem 1rem 0;
-  font-size: 0.82rem;
-}
 #form-message, #upload-message { font-size: 0.9rem; }
 #form-message.error, #upload-message.error { color: #c0392b; }
 #form-message.success, #upload-message.success { color: #2d7a4f; }

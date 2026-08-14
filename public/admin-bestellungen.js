@@ -5,7 +5,7 @@ const emptyEl = document.getElementById("order-empty");
 const STATUS_FILTERS = ["Alle", "Offen", "In Bearbeitung", "Erledigt", "Storniert"];
 const STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt", "Storniert"];
 const STEP_LABELS = {
-  schritt_rechnung: "Rechnung erstellen",
+  schritt_rechnung: "Angebot/Rechnung erstellen",
   schritt_bezahlung: "Auf Bezahlung warten",
   schritt_download: "Design(s) herunterladen",
   schritt_email_vorbereitet: "E-Mail vorbereiten",

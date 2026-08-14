@@ -1,3 +1,5 @@
+const IMAGE_TYP_VALUES = ["Design", "Hintergrund-Variante", "Hintergrund", "Motiv 1", "Motiv 2", "Motiv 3", "sonstiges"];
+
 const designId = new URLSearchParams(window.location.search).get("id");
 const titleEl = document.getElementById("design-title");
 const gridEl = document.getElementById("image-grid");
@@ -91,14 +93,19 @@ function renderImageCard(img) {
   wasserzeichenSelectEl.appendChild(el("option", { value: "true", textContent: "Mit Wasserzeichen", selected: !!img.wasserzeichen }));
   wasserzeichenSelectEl.appendChild(el("option", { value: "false", textContent: "Ohne Wasserzeichen", selected: !img.wasserzeichen }));
 
-  const hintergrundLabel = el("label", { className: "hintergrund-toggle" });
-  const hintergrundCheckbox = el("input", { type: "checkbox", checked: !!img.hintergrundVariante });
-  hintergrundLabel.append(hintergrundCheckbox, document.createTextNode(" Hintergrund-Variante"));
+  // img.typ ist bei Bildern von vor Einführung dieses Felds NULL - dann grob
+  // aus dem alten hintergrundVariante-Häkchen ableiten, damit die Auswahl
+  // nicht einfach leer/falsch beim ersten Wert startet.
+  const initialTyp = img.typ || (img.hintergrundVariante ? "Hintergrund-Variante" : "Design");
+  const typSelectEl = el("select", { className: "category-select" });
+  IMAGE_TYP_VALUES.forEach((t) => {
+    typSelectEl.appendChild(el("option", { value: t, textContent: t, selected: t === initialTyp }));
+  });
 
   async function patchEigenschaften() {
     const body = {
       wasserzeichen: wasserzeichenSelectEl.value === "true",
-      hintergrundVariante: hintergrundCheckbox.checked,
+      typ: typSelectEl.value,
     };
     // Verkaufsdatei darf nie als sichtbar markiert bleiben - direkt mit korrigieren.
     if (!body.wasserzeichen) body.sichtbar = false;
@@ -110,7 +117,7 @@ function renderImageCard(img) {
     loadImages();
   }
   wasserzeichenSelectEl.addEventListener("change", patchEigenschaften);
-  hintergrundCheckbox.addEventListener("change", patchEigenschaften);
+  typSelectEl.addEventListener("change", patchEigenschaften);
 
   const verkaufHinweis = isVerkaufsdatei
     ? el("p", { className: "kategorie-verkauf", textContent: "🛒 Verkaufsdatei" })
@@ -119,7 +126,7 @@ function renderImageCard(img) {
   return el("div", { className: "image-card" }, [
     el("img", { src: img.image, alt: img.bezeichnung || img.kategorie }),
     wasserzeichenSelectEl,
-    hintergrundLabel,
+    typSelectEl,
     verkaufHinweis,
     img.bezeichnung ? el("p", { textContent: img.bezeichnung }) : null,
     img.qualityWarning ? el("p", { className: "quality-warning", textContent: `⚠️ ${img.qualityWarning}` }) : null,

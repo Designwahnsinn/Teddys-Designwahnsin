@@ -8,7 +8,7 @@ const KONTAKT_PRAEFERENZ_VALUES = ["E-Mail", "WhatsApp"];
 // Handlungsbeschreibung). "Auf Bezahlung warten"/"gewartet" nicht - deshalb
 // dort ein {todo, done}-Paar statt eines starren Texts.
 const STEP_LABELS = {
-  schritt_rechnung: "Rechnung erstellt",
+  schritt_rechnung: "Angebot/Rechnung erstellt",
   schritt_bezahlung: { todo: "Auf Bezahlung warten", done: "Ist bezahlt" },
   schritt_download: "Design(s) heruntergeladen",
   schritt_email_vorbereitet: "E-Mail vorbereitet",

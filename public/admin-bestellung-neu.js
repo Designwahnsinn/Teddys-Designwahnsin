@@ -14,7 +14,7 @@ const STEP_ORDER = [
 const PROGRESS_STEPS = [
   { key: "kunde", label: "Kunde" },
   { key: "designs", label: "Designs" },
-  { key: "schritt_rechnung", label: "Rechnung" },
+  { key: "schritt_rechnung", label: "Angebot/Rechnung" },
   { key: "schritt_bezahlung", label: "Bezahlung" },
   { key: "schritt_download", label: "Download" },
   { key: "schritt_email_vorbereitet", label: "E-Mail" },
@@ -354,7 +354,7 @@ function renderStepAction(order, stepKey) {
 
   if (stepKey === "schritt_rechnung") {
     panelEl.append(
-      el("h2", { textContent: "Schritt 3 · Rechnung erstellen" }),
+      el("h2", { textContent: "Schritt 3 · Angebot/Rechnung erstellen" }),
       el("p", { textContent: `Kunde: ${order.kunde_name} (${order.kunde_email})` }),
       el("ul", {}, order.designs.map((d) => el("li", { textContent: `${d.id} · ${d.name} · ${formatPrice(d.price)}` }))),
       el("p", { textContent: `Gesamtsumme: ${formatPrice(totalPrice(order))}` }),

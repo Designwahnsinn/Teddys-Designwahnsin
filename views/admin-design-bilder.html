@@ -44,10 +44,16 @@
         <option value="false">Ohne Wasserzeichen (Verkaufsdatei)</option>
       </select>
 
-      <label class="checkbox-label">
-        <input type="checkbox" id="image-hintergrund" name="hintergrundVariante" value="true">
-        Hintergrund-Variante
-      </label>
+      <label for="image-typ">Bildtyp</label>
+      <select id="image-typ" name="typ" required>
+        <option value="Design">Design</option>
+        <option value="Hintergrund-Variante">Hintergrund-Variante</option>
+        <option value="Hintergrund">Hintergrund</option>
+        <option value="Motiv 1">Motiv 1</option>
+        <option value="Motiv 2">Motiv 2</option>
+        <option value="Motiv 3">Motiv 3</option>
+        <option value="sonstiges">sonstiges</option>
+      </select>
 
       <label for="image-bezeichnung">Bezeichnung (optional)</label>
       <input type="text" id="image-bezeichnung" name="bezeichnung" placeholder="z. B. Heller Hintergrund">

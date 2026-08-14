@@ -68,9 +68,8 @@ function renderImageThumbs(d) {
     .then((images) => {
       wrap.innerHTML = "";
       images.forEach((img) => {
-        const label = img.hintergrundVariante
-          ? (img.wasserzeichen ? "Hintergrund (mit WZ)" : "Hintergrund (ohne WZ)")
-          : (img.wasserzeichen ? "Mit WZ" : "Ohne WZ");
+        const typ = img.typ || (img.hintergrundVariante ? "Hintergrund-Variante" : "Design");
+        const label = `${typ} (${img.wasserzeichen ? "mit WZ" : "ohne WZ"})`;
         wrap.appendChild(
           el("div", { className: "edit-image-thumb", title: img.bezeichnung ? `${label} – ${img.bezeichnung}` : label }, [
             el("img", { src: img.image, alt: label }),
