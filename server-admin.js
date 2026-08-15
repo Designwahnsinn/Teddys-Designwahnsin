@@ -811,6 +811,7 @@ app.post("/api/public/inquiries", publicCors, inquiryLimiter, (req, res) => {
   const kontakt_praeferenz = (req.body.kontakt_praeferenz || "E-Mail").trim();
   const message = (req.body.message || "").trim();
   const designIds = Array.isArray(req.body.designIds) ? req.body.designIds : [];
+  const varianten = req.body.varianten && typeof req.body.varianten === "object" ? req.body.varianten : {};
 
   if (!kunde_name) return res.status(400).json({ error: "Name ist ein Pflichtfeld" });
   if (!EMAIL_PATTERN.test(kunde_email)) return res.status(400).json({ error: "Bitte eine gültige E-Mail-Adresse angeben" });
@@ -826,8 +827,20 @@ app.post("/api/public/inquiries", publicCors, inquiryLimiter, (req, res) => {
   const validIds = designIds.filter((id) => knownIds.has(id));
   if (validIds.length === 0) return res.status(400).json({ error: "Keine gültigen Designs ausgewählt" });
 
+  // Kundinnen können pro Design gezielt einzelne Varianten (z.B. nur Motiv 2 +
+  // Hintergrund statt "das ganze Design") auswählen - kein eigener Preis-
+  // /Paket-Katalog, die Auswahl landet einfach als Klartext in der Notiz,
+  // die die Kollegin beim manuellen Angebot-Erstellen sowieso liest.
+  const variantenText = validIds
+    .filter((id) => Array.isArray(varianten[id]) && varianten[id].length > 0)
+    .map((id) => `${id}: ${varianten[id].filter((v) => typeof v === "string").join(", ")}`)
+    .join("\n");
+  const notiz = [message || "(keine Nachricht)", variantenText ? `[Gewünschte Varianten]\n${variantenText}` : null]
+    .filter(Boolean)
+    .join("\n\n");
+
   const order = db.createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz });
-  db.updateOrder(order.id, { notiz: `[Website-Anfrage] ${message || "(keine Nachricht)"}` });
+  db.updateOrder(order.id, { notiz: `[Website-Anfrage] ${notiz}` });
   const updated = db.setOrderDesigns(order.id, validIds);
 
   res.status(201).json({ ok: true, id: updated.id });

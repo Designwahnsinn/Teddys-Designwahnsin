@@ -7,6 +7,7 @@ const emptyState = document.getElementById("empty-state");
 const lightbox = document.getElementById("lightbox");
 const lightboxImage = document.getElementById("lightbox-image");
 const lightboxThumbs = document.getElementById("lightbox-thumbs");
+const lightboxVariantSelect = document.getElementById("lightbox-variant-select");
 const lightboxBadge = document.getElementById("lightbox-badge");
 const lightboxId = document.getElementById("lightbox-id");
 const lightboxName = document.getElementById("lightbox-name");
@@ -27,6 +28,7 @@ const inquiryMessageStatus = document.getElementById("inquiry-message-status");
 
 const ADMIN_ORIGIN = "https://mitarbeiter.designwahnsinn-teddy.de";
 const SELECTION_KEY = "teddys_anfrage_designs";
+const VARIANTEN_KEY = "teddys_anfrage_varianten";
 
 let allDesigns = [];
 let whatsappNumber = "";
@@ -46,6 +48,30 @@ function saveSelection() {
 }
 
 let selection = loadSelection();
+
+// Optionale, feinere Auswahl innerhalb eines Designs (z.B. "nur Motiv 2 +
+// Hintergrund" statt des ganzen Designs) - Design-ID -> Set von lesbaren
+// Varianten-Labels. Wird als Klartext in die Anfrage-Nachricht übernommen,
+// kein eigener Preis-/Paket-Katalog nötig.
+function loadVarianten() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VARIANTEN_KEY) || "[]");
+    return new Map(raw.map(([id, labels]) => [id, new Set(labels)]));
+  } catch {
+    return new Map();
+  }
+}
+
+function saveVarianten() {
+  localStorage.setItem(VARIANTEN_KEY, JSON.stringify([...variantenSelection].map(([id, set]) => [id, [...set]])));
+}
+
+let variantenSelection = loadVarianten();
+
+function variantLabel(img) {
+  const typ = img.typ || (img.hintergrundVariante ? "Hintergrund-Variante" : "Design");
+  return img.bezeichnung ? `${typ} – ${img.bezeichnung}` : typ;
+}
 
 function el(tag, props, children) {
   const node = document.createElement(tag);
@@ -139,9 +165,60 @@ function updateLightboxInquiryToggle() {
   lightboxInquiryToggle.classList.toggle("selected", isSelected);
 }
 
+// Dropdown mit Mehrfachauswahl, damit man statt "das ganze Design" gezielt
+// einzelne Varianten (z.B. nur Motiv 2 + Hintergrund) zur Anfrage hinzufügen
+// kann. Kein eigener Preis-/Paket-Katalog - die Auswahl landet als Klartext
+// in der Anfrage-Nachricht, die Preisabsprache läuft weiterhin manuell.
+function buildVariantDropdown(design, images) {
+  if (!variantenSelection.has(design.id)) variantenSelection.set(design.id, new Set());
+  const selected = variantenSelection.get(design.id);
+
+  const wrap = el("div", { className: "variant-dropdown" });
+  const btn = el("button", { type: "button", className: "variant-dropdown-btn" });
+  const panel = el("div", { className: "variant-dropdown-panel", hidden: true });
+
+  function updateBtnLabel() {
+    btn.textContent = selected.size > 0
+      ? `${selected.size} Variante${selected.size === 1 ? "" : "n"} ausgewählt ▾`
+      : "Bestimmte Variante(n) auswählen (optional) ▾";
+  }
+  updateBtnLabel();
+
+  images.forEach((img) => {
+    const label = variantLabel(img);
+    const checkbox = el("input", { type: "checkbox", checked: selected.has(label) });
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) selected.add(label);
+      else selected.delete(label);
+      saveVarianten();
+      updateBtnLabel();
+    });
+    panel.appendChild(
+      el("label", { className: "variant-dropdown-option" }, [checkbox, document.createTextNode(` ${label}`)])
+    );
+  });
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    panel.hidden = !panel.hidden;
+  });
+
+  wrap.append(btn, panel);
+  return wrap;
+}
+
+// Ein einziger globaler Listener statt einem neuen pro Lightbox-Öffnung -
+// schließt das Dropdown-Panel bei Klick außerhalb.
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".variant-dropdown")) return;
+  const openPanel = lightboxVariantSelect.querySelector(".variant-dropdown-panel:not([hidden])");
+  if (openPanel) openPanel.hidden = true;
+});
+
 async function loadLightboxThumbs(design) {
   lightboxThumbs.hidden = true;
   lightboxThumbs.innerHTML = "";
+  lightboxVariantSelect.innerHTML = "";
   try {
     const res = await fetch(`/api/designs/${design.id}/images`);
     if (!res.ok || currentLightboxDesign !== design) return;
@@ -160,6 +237,7 @@ async function loadLightboxThumbs(design) {
       lightboxThumbs.appendChild(thumb);
     });
     lightboxThumbs.hidden = false;
+    lightboxVariantSelect.appendChild(buildVariantDropdown(design, images));
   } catch {
     // Hauptbild bleibt trotzdem sichtbar, wenn die Varianten nicht geladen werden können
   }
@@ -233,10 +311,18 @@ function renderInquirySelectedList() {
       renderInquirySelectedList();
       if (selection.size === 0) closeInquiryModal();
     });
+    const chosenVarianten = variantenSelection.get(id);
+    const varianteHint = chosenVarianten && chosenVarianten.size > 0
+      ? el("span", { className: "inquiry-selected-varianten", textContent: [...chosenVarianten].join(", ") })
+      : null;
+
     inquirySelectedList.appendChild(
       el("div", { className: "inquiry-selected-item" }, [
         el("img", { src: design.previewImage || design.image, alt: design.name }),
-        el("span", { textContent: design.name }),
+        el("div", { className: "inquiry-selected-text" }, [
+          el("span", { textContent: design.name }),
+          varianteHint,
+        ].filter(Boolean)),
         removeBtn,
       ])
     );
@@ -283,6 +369,11 @@ inquiryForm.addEventListener("submit", async (e) => {
         kontakt_praeferenz: inquiryForm.querySelector('input[name="kontakt_praeferenz"]:checked').value,
         message: document.getElementById("inquiry-message").value.trim(),
         designIds: [...selection],
+        varianten: Object.fromEntries(
+          [...variantenSelection]
+            .filter(([id, set]) => selection.has(id) && set.size > 0)
+            .map(([id, set]) => [id, [...set]])
+        ),
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -296,6 +387,8 @@ inquiryForm.addEventListener("submit", async (e) => {
     inquiryForm.reset();
     selection.clear();
     saveSelection();
+    variantenSelection.clear();
+    saveVarianten();
     updateInquiryBar();
     renderCards(visibleDesigns());
     if (currentLightboxDesign) updateLightboxInquiryToggle();
