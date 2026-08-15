@@ -405,9 +405,10 @@
   background: var(--bg-alt);
   border: 1px solid var(--border);
   border-radius: 16px;
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
-.order-table { width: 100%; border-collapse: collapse; }
+.order-table { width: 100%; min-width: 640px; border-collapse: collapse; }
 .order-table th, .order-table td {
   text-align: left;
   padding: 0.8rem 1rem;

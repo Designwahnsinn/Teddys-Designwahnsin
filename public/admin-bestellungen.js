@@ -4,15 +4,20 @@ const emptyEl = document.getElementById("order-empty");
 
 const STATUS_FILTERS = ["Alle", "Offen", "In Bearbeitung", "Erledigt", "Storniert"];
 const STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt", "Storniert"];
+// "bestaetigt" ist keine eigene DB-Spalte, sondern leitet sich aus
+// terms_confirmed_at ab - gleiches Modell wie in admin-bestellung-neu.js.
 const STEP_LABELS = {
   schritt_rechnung: "Angebot/Rechnung erstellen",
+  bestaetigt: "Auf Kunden-Bestätigung warten",
   schritt_bezahlung: "Auf Bezahlung warten",
-  schritt_download: "Design(s) herunterladen",
-  schritt_email_vorbereitet: "E-Mail vorbereiten",
-  schritt_verschickt: "Als verschickt markieren",
   schritt_datei_geloescht: "Datei(en) lokal löschen",
 };
 const STEP_ORDER = Object.keys(STEP_LABELS);
+
+function isStepDone(order, key) {
+  if (key === "bestaetigt") return Boolean(order.terms_confirmed_at);
+  return Boolean(order[key]);
+}
 
 let activeFilter = "Alle";
 
@@ -31,7 +36,7 @@ function currentStepLabel(order) {
   if (order.status === "Erledigt") return "Abgeschlossen";
   if (order.designs.length === 0) return "Designs auswählen";
   for (const step of STEP_ORDER) {
-    if (!order[step]) return STEP_LABELS[step];
+    if (!isStepDone(order, step)) return STEP_LABELS[step];
   }
   return "Bereit zum Abschließen";
 }
