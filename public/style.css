@@ -266,6 +266,33 @@ h2 {
   transform: rotate(1deg);
 }
 
+/* Tags: eigene, dezentere Zeile unter Kategorie-Buttons + Suche - lässt sich
+   zusätzlich zur Kategorie kombinieren, deshalb optisch als "zweite Ebene". */
+.tag-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.75rem 0 1.5rem;
+}
+.tag-filter-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.tag-filter-btn:not(:first-child)::before { content: "#"; opacity: 0.6; }
+.tag-filter-btn:hover { background: var(--bg-alt); }
+.tag-filter-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.tag-filter-btn.active::before { opacity: 0.9; }
+
 /* Masonry-Grid (Pinterest-Stil) */
 .masonry {
   columns: 4 220px;

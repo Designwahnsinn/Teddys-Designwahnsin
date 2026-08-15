@@ -323,6 +323,7 @@ app.get("/api/config", requireAuth, (req, res) => {
   const previewSecret = process.env.PREVIEW_SECRET || "";
   res.json({
     categories: db.getCategories(),
+    tags: db.getTags(),
     whatsappNumber: WHATSAPP_NUMBER,
     siteLive,
     previewUrl: !siteLive && previewSecret ? `${PUBLIC_ORIGINS[0]}/?preview=${previewSecret}` : null,
@@ -351,6 +352,15 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
   if (status && !STATUS_VALUES.includes(status)) {
     return res.status(400).json({ error: "Ungültiger Status" });
   }
+  // Kommt über ein <form>/FormData (wegen Datei-Upload) als JSON-String statt
+  // als natives Mehrfachfeld - siehe buildTagInput() in admin-neu.js.
+  let tags = [];
+  try {
+    tags = JSON.parse(req.body.tags || "[]");
+    if (!Array.isArray(tags)) tags = [];
+  } catch {
+    tags = [];
+  }
 
   try {
     const [mainFile, ...extraFiles] = files;
@@ -369,6 +379,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
       previewImage: previewFilename ? `/uploads/${previewFilename}` : null,
       online: req.body.online !== undefined,
       qualityWarning,
+      tags,
       createdAt: new Date().toISOString(),
     });
     const ext = filename.split(".").pop();
@@ -399,7 +410,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
 });
 
 app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
-  const { name, description, category, price, status, kaufLink, driveLink, instagramLink, online } = req.body;
+  const { name, description, category, price, status, kaufLink, driveLink, instagramLink, online, tags } = req.body;
 
   const changes = {};
   if (name !== undefined) {
@@ -424,6 +435,12 @@ app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
   if (driveLink !== undefined) changes.driveLink = driveLink;
   if (instagramLink !== undefined) changes.instagramLink = instagramLink;
   if (online !== undefined) changes.online = Boolean(online) ? 1 : 0;
+  if (tags !== undefined) {
+    if (!Array.isArray(tags) || !tags.every((t) => typeof t === "string")) {
+      return res.status(400).json({ error: "tags muss ein Array aus Strings sein" });
+    }
+    changes.tags = tags;
+  }
 
   const updated = db.updateDesign(req.params.id, changes);
   if (!updated) return res.status(404).json({ error: "Nicht gefunden" });

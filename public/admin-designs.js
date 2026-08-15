@@ -8,6 +8,7 @@ const bulkCountEl = document.getElementById("bulk-count");
 
 const STATUS_VALUES = ["verfügbar", "exklusiv", "verkauft"];
 let categories = [];
+let allTags = [];
 let allDesigns = [];
 const selectedIds = new Set();
 
@@ -16,6 +17,69 @@ function el(tag, props, children) {
   Object.assign(node, props);
   (children || []).forEach((c) => node.appendChild(c));
   return node;
+}
+
+// Freies Mehrfach-Tag-Eingabefeld mit Autovervollständigung aus bereits
+// vorhandenen Tags. Anders als beim Upload (admin-neu.js, FormData wegen
+// Datei-Upload) geht die Auswahl hier direkt als Array in ein JSON-PATCH -
+// getTags() liefert die aktuelle Auswahl beim Speichern.
+function buildTagInput(existingTags, availableTags) {
+  const selected = [...existingTags];
+  const wrap = el("div", { className: "tag-input" });
+  const chipsEl = el("div", { className: "tag-input-chips" });
+  const textInput = el("input", { type: "text", placeholder: "Tag eingeben und Enter …", className: "tag-input-field" });
+  const suggestionsEl = el("div", { className: "tag-input-suggestions", hidden: true });
+
+  function renderChips() {
+    chipsEl.innerHTML = "";
+    selected.forEach((tag) => {
+      const removeBtn = el("button", { type: "button", textContent: "×", "aria-label": `${tag} entfernen` });
+      removeBtn.addEventListener("click", () => {
+        selected.splice(selected.indexOf(tag), 1);
+        renderChips();
+      });
+      chipsEl.appendChild(el("span", { className: "tag-chip" }, [document.createTextNode(tag), removeBtn]));
+    });
+  }
+
+  function addTag(name) {
+    const trimmed = name.trim();
+    if (!trimmed || selected.includes(trimmed)) return;
+    selected.push(trimmed);
+    renderChips();
+    textInput.value = "";
+    suggestionsEl.hidden = true;
+  }
+
+  function updateSuggestions() {
+    const query = textInput.value.trim().toLowerCase();
+    suggestionsEl.innerHTML = "";
+    if (!query) { suggestionsEl.hidden = true; return; }
+    const matches = availableTags.filter((t) => t.toLowerCase().includes(query) && !selected.includes(t)).slice(0, 8);
+    if (matches.length === 0) { suggestionsEl.hidden = true; return; }
+    matches.forEach((t) => {
+      const item = el("button", { type: "button", className: "tag-input-suggestion", textContent: t });
+      item.addEventListener("click", () => addTag(t));
+      suggestionsEl.appendChild(item);
+    });
+    suggestionsEl.hidden = false;
+  }
+
+  textInput.addEventListener("input", updateSuggestions);
+  textInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTag(textInput.value);
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (!wrap.contains(e.target)) suggestionsEl.hidden = true;
+  });
+
+  renderChips();
+  wrap.append(chipsEl, textInput, suggestionsEl);
+  wrap.getTags = () => [...selected];
+  return wrap;
 }
 
 function formatPrice(price) {
@@ -49,6 +113,9 @@ function renderCardView(d, body) {
     el("h3", { textContent: d.name }),
     el("p", { textContent: [d.description, formatPrice(d.price)].filter(Boolean).join(" · ") }),
   ];
+  if (d.tags && d.tags.length > 0) {
+    children.push(el("p", { className: "tag-list" }, d.tags.map((t) => el("span", { className: "tag-chip-static", textContent: t }))));
+  }
   if (d.driveLink) {
     children.push(el("p", { className: "drive-link" }, [
       el("a", { href: d.driveLink, target: "_blank", rel: "noopener", textContent: "📁 Originaldatei auf Drive" }),
@@ -98,6 +165,7 @@ function renderCardEdit(d, body) {
   const linkInput = el("input", { type: "url", value: d.kaufLink || "", placeholder: "https://…" });
   const instagramInput = el("input", { type: "url", value: d.instagramLink || "", placeholder: "https://instagram.com/p/…" });
   const driveInput = el("input", { type: "url", value: d.driveLink || "", placeholder: "https://drive.google.com/…" });
+  const tagInput = buildTagInput(d.tags || [], allTags);
 
   const errorMsg = el("p", { className: "edit-error" });
 
@@ -114,6 +182,7 @@ function renderCardEdit(d, body) {
         kaufLink: linkInput.value.trim(),
         instagramLink: instagramInput.value.trim(),
         driveLink: driveInput.value.trim(),
+        tags: tagInput.getTags(),
       }),
     });
     if (res.ok) {
@@ -162,6 +231,7 @@ function renderCardEdit(d, body) {
     el("label", { textContent: "Kauf-Link" }), linkInput,
     el("label", { textContent: "Instagram-Link" }), instagramInput,
     el("label", { textContent: "Google-Drive-Link (intern)" }), driveInput,
+    el("label", { textContent: "Tags" }), tagInput,
     errorMsg,
     el("div", { className: "card-actions" }, [saveBtn, cancelBtn]),
     el("label", { textContent: "Bilder-Varianten" }),
@@ -286,6 +356,7 @@ async function init() {
   const res = await fetch("/api/config");
   const config = await res.json();
   categories = config.categories;
+  allTags = config.tags || [];
 
   categoryFilterEl.appendChild(el("option", { value: "alle", textContent: "Alle Kategorien" }));
   categories.forEach((c) => categoryFilterEl.appendChild(el("option", { value: c, textContent: c })));

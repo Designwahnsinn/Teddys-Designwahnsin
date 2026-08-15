@@ -187,6 +187,17 @@ db.exec(`
     PRIMARY KEY (order_id, design_id)
   );
 
+  CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+  );
+
+  CREATE TABLE IF NOT EXISTS design_tags (
+    design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+    tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (design_id, tag_id)
+  );
+
   CREATE TABLE IF NOT EXISTS design_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
@@ -205,6 +216,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_designs_status ON designs(status);
   CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
   CREATE INDEX IF NOT EXISTS idx_design_images_design ON design_images(design_id);
+  CREATE INDEX IF NOT EXISTS idx_design_tags_tag ON design_tags(tag_id);
 `);
 
 // Für bereits existierende Datenbanken: CREATE TABLE IF NOT EXISTS legt keine
@@ -389,17 +401,22 @@ function getDesigns() {
   // qualityWarning und previewImage kommen vom Hauptbild - beide sollen überall
   // verfügbar sein, wo Designs in einer Liste angezeigt/ausgewählt werden
   // (z.B. öffentliche Galerie, Bestell-Wizard), ohne dass man dafür extra die
-  // Bilder-verwalten-Seite pro Design aufrufen muss.
+  // Bilder-verwalten-Seite pro Design aufrufen muss. Tags kommen als "||"-
+  // getrennte Liste aus einer Subquery mit, statt für jedes Design einzeln
+  // nachzuladen (N+1) - bei potenziell hunderten Designs in der Übersicht.
   return db.prepare(`
-    SELECT designs.*, design_images.qualityWarning AS qualityWarning, design_images.previewImage AS previewImage
+    SELECT designs.*, design_images.qualityWarning AS qualityWarning, design_images.previewImage AS previewImage,
+      (SELECT GROUP_CONCAT(t.name, '||') FROM design_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.design_id = designs.id) AS tagsRaw
     FROM designs
     LEFT JOIN design_images ON design_images.design_id = designs.id AND design_images.ist_hauptbild = 1
     ORDER BY designs.rowid DESC
-  `).all();
+  `).all().map(({ tagsRaw, ...d }) => ({ ...d, tags: tagsRaw ? tagsRaw.split("||") : [] }));
 }
 
 function getDesign(id) {
-  return db.prepare("SELECT * FROM designs WHERE id = ?").get(id);
+  const design = db.prepare("SELECT * FROM designs WHERE id = ?").get(id);
+  if (!design) return design;
+  return { ...design, tags: getDesignTags(id) };
 }
 
 // TD-XXXX: fortlaufende Nummer über alle bisher vergebenen IDs hinweg
@@ -434,7 +451,8 @@ function addDesign(design) {
     INSERT INTO design_images (design_id, kategorie, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, createdAt)
     VALUES (?, 'Mit Wasserzeichen', 'Design', 'Hauptbild', ?, ?, 1, 1, ?, ?)
   `).run(design.id, design.image, design.previewImage || null, design.qualityWarning || null, design.createdAt);
-  return db.prepare("SELECT * FROM designs WHERE id = ?").get(design.id);
+  if (design.tags && design.tags.length > 0) setDesignTags(design.id, design.tags);
+  return getDesign(design.id);
 }
 
 const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "status", "kaufLink", "driveLink", "instagramLink", "online"];
@@ -448,7 +466,8 @@ function updateDesign(id, changes) {
     const setClause = fields.map((f) => `${f} = @${f}`).join(", ");
     db.prepare(`UPDATE designs SET ${setClause} WHERE id = @id`).run({ ...changes, id });
   }
-  return db.prepare("SELECT * FROM designs WHERE id = ?").get(id);
+  if (changes.tags !== undefined) setDesignTags(id, changes.tags);
+  return getDesign(id);
 }
 
 function deleteDesign(id) {
@@ -490,11 +509,12 @@ function renameDesignId(oldId, newId) {
       db.prepare("UPDATE designs SET id = ? WHERE id = ?").run(newId, oldId);
       db.prepare("UPDATE design_images SET design_id = ? WHERE design_id = ?").run(newId, oldId);
       db.prepare("UPDATE order_designs SET design_id = ? WHERE design_id = ?").run(newId, oldId);
+      db.prepare("UPDATE design_tags SET design_id = ? WHERE design_id = ?").run(newId, oldId);
     })();
   } finally {
     db.pragma("foreign_keys = ON");
   }
-  return db.prepare("SELECT * FROM designs WHERE id = ?").get(newId);
+  return getDesign(newId);
 }
 
 // --- Bild-Varianten pro Design ---
@@ -622,6 +642,42 @@ function deleteCategory(name) {
   if (result.changes === 0) return null;
   return getCategories();
 }
+
+// --- Tags ---
+// Im Gegensatz zu Kategorien (feste, vorher anzulegende Liste) sind Tags
+// frei: neue Tags entstehen einfach dadurch, dass sie einem Design zugewiesen
+// werden (siehe setDesignTags) - kein separater "Tag zuerst anlegen"-Schritt.
+
+function getTags() {
+  return db.prepare("SELECT name FROM tags ORDER BY name COLLATE NOCASE ASC").all().map((r) => r.name);
+}
+
+function getOrCreateTagId(name) {
+  const existing = db.prepare("SELECT id FROM tags WHERE name = ?").get(name);
+  if (existing) return existing.id;
+  return db.prepare("INSERT INTO tags (name) VALUES (?)").run(name).lastInsertRowid;
+}
+
+function getDesignTags(designId) {
+  return db.prepare(`
+    SELECT t.name FROM tags t
+    JOIN design_tags dt ON dt.tag_id = t.id
+    WHERE dt.design_id = ?
+    ORDER BY t.name COLLATE NOCASE ASC
+  `).all(designId).map((r) => r.name);
+}
+
+// Ersetzt die komplette Tag-Zuordnung eines Designs durch die übergebene
+// Liste (wie setOrderDesigns bei Varianten) - leere/doppelte Einträge werden
+// rausgefiltert, unbekannte Tag-Namen automatisch neu angelegt.
+const setDesignTags = db.transaction((designId, tagNames) => {
+  db.prepare("DELETE FROM design_tags WHERE design_id = ?").run(designId);
+  const insert = db.prepare("INSERT OR IGNORE INTO design_tags (design_id, tag_id) VALUES (?, ?)");
+  const uniqueNames = [...new Set((tagNames || []).map((t) => String(t).trim()).filter(Boolean))];
+  for (const name of uniqueNames) {
+    insert.run(designId, getOrCreateTagId(name));
+  }
+});
 
 // --- Bestellungen ---
 
@@ -877,6 +933,7 @@ module.exports = {
   addCategory,
   renameCategory,
   deleteCategory,
+  getTags,
   ORDER_STEPS,
   ORDER_STATUS_VALUES,
   KONTAKT_PRAEFERENZ_VALUES,

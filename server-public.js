@@ -126,7 +126,7 @@ app.get("/api/designs", (req, res) => {
 
 app.get("/api/config", (req, res) => {
   res.set("Cache-Control", `public, max-age=${ONE_MINUTE}`);
-  res.json({ categories: db.getCategories(), whatsappNumber: WHATSAPP_NUMBER });
+  res.json({ categories: db.getCategories(), tags: db.getTags(), whatsappNumber: WHATSAPP_NUMBER });
 });
 
 app.get("/api/designs/:id/images", (req, res) => {

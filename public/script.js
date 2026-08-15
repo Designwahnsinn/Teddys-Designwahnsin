@@ -1,6 +1,7 @@
 const searchInput = document.getElementById("design-search");
 const cardsEl = document.getElementById("design-cards");
 const filtersEl = document.getElementById("category-filters");
+const tagFiltersEl = document.getElementById("tag-filters");
 const noResults = document.getElementById("no-results");
 const emptyState = document.getElementById("empty-state");
 
@@ -33,6 +34,7 @@ const VARIANTEN_KEY = "teddys_anfrage_varianten";
 let allDesigns = [];
 let whatsappNumber = "";
 let activeCategory = "Alle";
+let activeTag = "Alle";
 let currentLightboxDesign = null;
 
 function loadSelection() {
@@ -94,10 +96,11 @@ function visibleDesigns() {
   const query = searchInput.value.trim().toLowerCase();
   return allDesigns.filter((d) => {
     const matchesCategory = activeCategory === "Alle" || d.category === activeCategory;
-    const matchesQuery = `${d.name} ${d.description || ""} ${d.category || ""}`
+    const matchesTag = activeTag === "Alle" || (d.tags || []).includes(activeTag);
+    const matchesQuery = `${d.name} ${d.description || ""} ${d.category || ""} ${(d.tags || []).join(" ")}`
       .toLowerCase()
       .includes(query);
-    return matchesCategory && matchesQuery;
+    return matchesCategory && matchesTag && matchesQuery;
   });
 }
 
@@ -115,6 +118,31 @@ function renderFilters(categories) {
       update();
     });
     filtersEl.appendChild(btn);
+  });
+}
+
+// Tag-Chips sind bewusst getrennt von den Kategorie-Buttons (eigene Zeile,
+// eigenes "Alle") - beide Filter lassen sich gleichzeitig kombinieren, ein
+// Design muss also sowohl zur aktiven Kategorie als auch zum aktiven Tag passen.
+function renderTagFilters(tags) {
+  tagFiltersEl.innerHTML = "";
+  if (!tags || tags.length === 0) {
+    tagFiltersEl.hidden = true;
+    return;
+  }
+  tagFiltersEl.hidden = false;
+  ["Alle", ...tags].forEach((t) => {
+    const btn = el("button", {
+      type: "button",
+      className: `tag-filter-btn${t === activeTag ? " active" : ""}`,
+      textContent: t,
+    });
+    btn.addEventListener("click", () => {
+      activeTag = t;
+      [...tagFiltersEl.children].forEach((b) => b.classList.toggle("active", b === btn));
+      update();
+    });
+    tagFiltersEl.appendChild(btn);
   });
 }
 
@@ -425,6 +453,7 @@ async function init() {
   whatsappNumber = config.whatsappNumber;
 
   renderFilters(config.categories);
+  renderTagFilters(config.tags);
   update();
   updateInquiryBar();
 }
