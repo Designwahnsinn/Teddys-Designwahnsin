@@ -2,23 +2,20 @@ const titleEl = document.getElementById("wizard-title");
 const progressEl = document.getElementById("wizard-progress");
 const panelEl = document.getElementById("wizard-panel");
 
-const STEP_ORDER = [
-  "schritt_rechnung",
-  "schritt_bezahlung",
-  "schritt_download",
-  "schritt_email_vorbereitet",
-  "schritt_verschickt",
-  "schritt_datei_geloescht",
-];
+// "bestaetigt" ist keine eigene DB-Spalte (siehe ORDER_STEPS-Kommentar in
+// db.js) - isStepDone() leitet sie aus terms_confirmed_at ab. Reihenfolge:
+// die Kundin muss dem Angebot zustimmen, BEVOR eine Zahlung dafür verbucht
+// wird (advanceOrderStep erzwingt das serverseitig). "Freigabe" ist kein
+// eigener Schritt mehr - Bezahlung erhalten gibt Dateien+Rechnung automatisch
+// frei (siehe advanceOrderStep in db.js), kein separater Klick nötig.
+const STEP_ORDER = ["schritt_rechnung", "bestaetigt", "schritt_bezahlung", "schritt_datei_geloescht"];
 
 const PROGRESS_STEPS = [
   { key: "kunde", label: "Kunde" },
   { key: "designs", label: "Designs" },
   { key: "schritt_rechnung", label: "Angebot/Rechnung" },
+  { key: "bestaetigt", label: "Bestätigt" },
   { key: "schritt_bezahlung", label: "Bezahlung" },
-  { key: "schritt_download", label: "Download" },
-  { key: "schritt_email_vorbereitet", label: "E-Mail" },
-  { key: "schritt_verschickt", label: "Verschickt" },
   { key: "schritt_datei_geloescht", label: "Gelöscht" },
   { key: "complete", label: "Abschluss" },
 ];
@@ -37,6 +34,78 @@ function formatPrice(price) {
   return price != null ? `${Number(price).toFixed(2)} €` : "";
 }
 
+// Nummeriertes Label wie im öffentlichen Varianten-Dropdown (siehe
+// public/script.js) - macht z.B. zwei "Hintergrund-Variante"-Bilder ohne
+// eigene Bezeichnung eindeutig unterscheid- und auswählbar.
+function variantLabel(img, index) {
+  const typ = img.typ || (img.hintergrundVariante ? "Hintergrund-Variante" : "Design");
+  const base = img.bezeichnung ? `${typ} – ${img.bezeichnung}` : typ;
+  return `${index}. ${base}`;
+}
+
+// Mehrfachauswahl-Dropdown für die Bild-Varianten eines Designs, analog zur
+// öffentlichen Anfrage-Lightbox - damit auch bei manuell angelegten
+// Bestellungen (z.B. Instagram-DM) festgehalten werden kann, welche Variante
+// gewünscht ist. Bilder werden erst beim ersten Öffnen nachgeladen, damit
+// nicht für jedes der u.U. vielen Designs in der Liste sofort ein Request rausgeht.
+function buildVariantPicker(design, selectedSet) {
+  const wrap = el("div", { className: "variant-dropdown" });
+  const btn = el("button", { type: "button", className: "variant-dropdown-btn" });
+  const panel = el("div", { className: "variant-dropdown-panel", hidden: true });
+  let loaded = false;
+
+  function updateBtnLabel() {
+    btn.textContent = selectedSet.size > 0
+      ? `${selectedSet.size} Variante${selectedSet.size === 1 ? "" : "n"} ausgewählt ▾`
+      : "Variante(n) auswählen (optional) ▾";
+  }
+  updateBtnLabel();
+
+  async function ensureLoaded() {
+    if (loaded) return;
+    loaded = true;
+    panel.textContent = "Lädt …";
+    try {
+      const res = await fetch(`/api/admin/designs/${design.id}/images`);
+      const images = (res.ok ? await res.json() : []).filter((img) => img.wasserzeichen);
+      panel.innerHTML = "";
+      if (images.length === 0) {
+        panel.appendChild(el("p", { className: "muted", textContent: "Keine Varianten hinterlegt." }));
+        return;
+      }
+      images.forEach((img, i) => {
+        const label = variantLabel(img, i + 1);
+        const checkbox = el("input", { type: "checkbox", checked: selectedSet.has(label) });
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) selectedSet.add(label);
+          else selectedSet.delete(label);
+          updateBtnLabel();
+        });
+        panel.appendChild(
+          el("label", { className: "variant-dropdown-option" }, [checkbox, document.createTextNode(` ${label}`)])
+        );
+      });
+    } catch {
+      panel.innerHTML = "";
+      panel.appendChild(el("p", { className: "muted", textContent: "Fehler beim Laden der Varianten." }));
+    }
+  }
+
+  btn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (panel.hidden) await ensureLoaded();
+    panel.hidden = !panel.hidden;
+  });
+
+  wrap.append(btn, panel);
+  return wrap;
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".variant-dropdown")) return;
+  document.querySelectorAll(".variant-dropdown-panel:not([hidden])").forEach((p) => { p.hidden = true; });
+});
+
 // Designs-Schritt gilt auch als erledigt, wenn (noch) kein echtes Design im
 // System zugeordnet ist, aber eine Notiz zu noch nicht hochgeladenen Designs
 // hinterlegt wurde - sonst kommt man mit reinen Instagram-Anfragen nie weiter.
@@ -44,6 +113,7 @@ function isStepDone(order, key) {
   if (key === "kunde") return true;
   if (key === "designs") return order.designs.length > 0 || Boolean(order.notiz);
   if (key === "complete") return order.status === "Erledigt";
+  if (key === "bestaetigt") return Boolean(order.terms_confirmed_at);
   return Boolean(order[key]);
 }
 
@@ -196,9 +266,16 @@ async function renderStep2DesignPicker(order) {
 
   const listEl = el("div", { className: "wizard-design-list" });
   const checkboxes = new Map();
+  // designId -> Set<Varianten-Label> - vorbelegt aus bereits zugeordneten
+  // Designs, falls man auf diesen Schritt zurückspringt.
+  const variantenSelection = new Map();
+  order.designs.forEach((d) => variantenSelection.set(d.id, new Set(d.varianten || [])));
+
   const rows = designs.map((d) => {
-    const checkbox = el("input", { type: "checkbox", value: d.id });
+    const checkbox = el("input", { type: "checkbox", value: d.id, checked: variantenSelection.has(d.id) });
     checkboxes.set(d.id, checkbox);
+    if (!variantenSelection.has(d.id)) variantenSelection.set(d.id, new Set());
+
     const row = el("label", { className: "wizard-design-row" }, [
       checkbox,
       el("img", { src: d.image, alt: d.name }),
@@ -207,15 +284,21 @@ async function renderStep2DesignPicker(order) {
         ? el("span", { className: "wizard-quality-warning", textContent: "⚠️ Auflösung niedrig", title: d.qualityWarning })
         : el("span", { className: "wizard-quality-ok", textContent: "✓ Qualität ok" }),
     ]);
-    row.dataset.search = `${d.id} ${d.name}`.toLowerCase();
-    listEl.appendChild(row);
-    return row;
+    const variantRow = el("div", { className: "wizard-design-variant-row", hidden: !checkbox.checked }, [
+      buildVariantPicker(d, variantenSelection.get(d.id)),
+    ]);
+    checkbox.addEventListener("change", () => { variantRow.hidden = !checkbox.checked; });
+
+    const item = el("div", { className: "wizard-design-item" }, [row, variantRow]);
+    item.dataset.search = `${d.id} ${d.name}`.toLowerCase();
+    listEl.appendChild(item);
+    return item;
   });
 
   searchInput.addEventListener("input", () => {
     const query = searchInput.value.trim().toLowerCase();
-    rows.forEach((row) => {
-      row.hidden = query !== "" && !row.dataset.search.includes(query);
+    rows.forEach((item) => {
+      item.hidden = query !== "" && !item.dataset.search.includes(query);
     });
   });
 
@@ -237,10 +320,15 @@ async function renderStep2DesignPicker(order) {
 
     let data = order;
     if (designIds.length > 0) {
+      const varianten = Object.fromEntries(
+        [...variantenSelection]
+          .filter(([id, set]) => designIds.includes(id) && set.size > 0)
+          .map(([id, set]) => [id, [...set]])
+      );
       const res = await fetch(`/api/admin/orders/${order.id}/designs`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ designIds }),
+        body: JSON.stringify({ designIds, varianten }),
       });
       data = await res.json();
       if (!res.ok) {
@@ -351,7 +439,24 @@ function renderStepAction(order, stepKey) {
       errorMsg.textContent = err.message;
     }
   };
-
+  // Für "bestaetigt"/"freigegeben" gibt es keinen generischen Schritt-Endpunkt
+  // (siehe STEP_ORDER-Kommentar) - hier wird stattdessen direkt der jeweils
+  // zuständige Endpunkt aufgerufen und danach neu gerendert.
+  const refreshOrder = async () => {
+    errorMsg.textContent = "";
+    try {
+      renderForOrder(await fetchOrder(order.id));
+    } catch (err) {
+      errorMsg.textContent = err.message;
+    }
+  };
+  const confirmManually = async () => {
+    errorMsg.textContent = "";
+    const res = await fetch(`/api/admin/orders/${order.id}/confirm-manually`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) { errorMsg.textContent = data.error || "Fehler beim Bestätigen."; return; }
+    renderForOrder(data);
+  };
   if (stepKey === "schritt_rechnung") {
     panelEl.append(
       el("h2", { textContent: "Schritt 3 · Angebot/Rechnung erstellen" }),
@@ -364,74 +469,46 @@ function renderStepAction(order, stepKey) {
       errorMsg,
       el("button", { type: "button", textContent: "Rechnung erstellt – weiter", onclick: () => runStep() })
     );
+  } else if (stepKey === "bestaetigt") {
+    const confirmed = Boolean(order.terms_confirmed_at);
+    panelEl.append(
+      el("h2", { textContent: "Schritt 4 · Kunde bestätigt Bestellung" }),
+      el("p", { className: "wizard-hint", textContent: "Die Kundin bestätigt selbst über den Bestätigungslink oben, dass sie das Angebot annimmt. Hat sie stattdessen telefonisch oder per Instagram-DM zugesagt, unten manuell bestätigen." }),
+      el("p", {
+        textContent: confirmed
+          ? `✅ Bestätigt am ${new Date(order.terms_confirmed_at).toLocaleString("de-DE")}`
+          : "⏳ Noch nicht bestätigt.",
+      }),
+      errorMsg
+    );
+    if (confirmed) {
+      panelEl.appendChild(el("button", { type: "button", textContent: "Weiter", onclick: () => renderForOrder(order) }));
+    } else {
+      panelEl.appendChild(
+        el("div", { className: "card-actions" }, [
+          el("button", { type: "button", textContent: "Aktualisieren", onclick: refreshOrder }),
+          el("button", { type: "button", className: "cancel-btn", textContent: "Kunde hat anders bestätigt (manuell)", onclick: confirmManually }),
+        ])
+      );
+    }
   } else if (stepKey === "schritt_bezahlung") {
     panelEl.append(
-      el("h2", { textContent: "Schritt 4 · Auf Bezahlung warten" }),
+      el("h2", { textContent: "Schritt 5 · Bezahlung erhalten" }),
       el("p", { textContent: `Gesamtsumme: ${formatPrice(totalPrice(order))}` }),
-      el("p", { className: "wizard-hint", textContent: "Sobald der Zahlungseingang bestätigt ist, hier weiterklicken." }),
+      el("p", { className: "wizard-hint", textContent: "Sobald der Zahlungseingang bestätigt ist, hier weiterklicken - Dateien und Rechnung werden dann automatisch für den Kunden-Download freigegeben, kein separater Schritt nötig." }),
       errorMsg,
       el("button", { type: "button", textContent: "Zahlung erhalten – weiter", onclick: () => runStep() })
     );
-  } else if (stepKey === "schritt_download") {
+  } else if (stepKey === "schritt_datei_geloescht") {
     const listEl = el("ul", { className: "download-list" });
     panelEl.append(
-      el("h2", { textContent: "Schritt 5 · Design(s) herunterladen" }),
-      el("p", { className: "wizard-hint", textContent: "Lädt die Datei direkt herunter, um sie an die E-Mail/WhatsApp-Nachricht anzuhängen." }),
+      el("h2", { textContent: "Schritt 6 · Datei(en) lokal löschen" }),
+      el("p", { className: "wizard-hint", textContent: "Falls du die Datei(en) zwischenzeitlich lokal heruntergeladen hattest (z.B. für die Rechnungsstellung), jetzt löschen." }),
       listEl,
-      errorMsg,
-      el("button", { type: "button", textContent: "Heruntergeladen – weiter", onclick: () => runStep() })
-    );
-    loadDownloadLinks(order, listEl);
-  } else if (stepKey === "schritt_email_vorbereitet") {
-    const designNames = order.designs.map((d) => d.name).join(", ");
-    const wantsWhatsapp = order.kontakt_praeferenz === "WhatsApp" && order.kunde_whatsapp;
-
-    if (wantsWhatsapp) {
-      const waNumber = order.kunde_whatsapp.replace(/[^\d+]/g, "").replace(/^\+/, "");
-      const text = encodeURIComponent(
-        `Hallo ${order.kunde_name}, vielen Dank für deine Bestellung (${designNames}). Die Datei(en) und deine Rechnung schicken wir dir gleich hier rüber!`
-      );
-      const waLink = `https://wa.me/${waNumber}?text=${text}`;
-      panelEl.append(
-        el("h2", { textContent: "Schritt 6 · Kontakt vorbereiten (WhatsApp gewünscht)" }),
-        el("p", { className: "wizard-hint", textContent: "Kunde möchte per WhatsApp kontaktiert werden. Öffnet WhatsApp mit vorausgefülltem Text – Datei(en) + Rechnung dort anhängen." }),
-        errorMsg,
-        el("button", {
-          type: "button",
-          textContent: "WhatsApp öffnen & Schritt abschließen",
-          onclick: () => runStep(() => { window.open(waLink, "_blank"); }),
-        })
-      );
-    } else {
-      const subject = encodeURIComponent(`Deine Bestellung bei Teddys Designwahnsinn`);
-      const body = encodeURIComponent(
-        `Hallo ${order.kunde_name},\n\nvielen Dank für deine Bestellung (${designNames}).\nDie Datei(en) und deine Rechnung findest du im Anhang.\n\nHINWEIS: Datei(en) + Rechnung manuell anhängen, bevor die Mail verschickt wird!\n\nViele Grüße`
-      );
-      const mailto = `mailto:${encodeURIComponent(order.kunde_email)}?subject=${subject}&body=${body}`;
-      panelEl.append(
-        el("h2", { textContent: "Schritt 6 · E-Mail vorbereiten" }),
-        el("p", { className: "wizard-hint", textContent: "Öffnet dein E-Mail-Programm mit vorausgefülltem Text. Datei(en) + Rechnung nicht vergessen anzuhängen!" }),
-        errorMsg,
-        el("button", {
-          type: "button",
-          textContent: "E-Mail öffnen & Schritt abschließen",
-          onclick: () => runStep(() => { window.location.href = mailto; }),
-        })
-      );
-    }
-  } else if (stepKey === "schritt_verschickt") {
-    panelEl.append(
-      el("h2", { textContent: "Schritt 7 · Als verschickt markieren" }),
-      errorMsg,
-      el("button", { type: "button", textContent: "E-Mail wurde verschickt", onclick: () => runStep() })
-    );
-  } else if (stepKey === "schritt_datei_geloescht") {
-    panelEl.append(
-      el("h2", { textContent: "Schritt 8 · Datei(en) lokal löschen" }),
-      el("p", { className: "wizard-hint", textContent: "Bitte die heruntergeladene(n) Datei(en) jetzt vom eigenen Rechner löschen." }),
       errorMsg,
       el("button", { type: "button", textContent: "Datei(en) gelöscht – weiter", onclick: () => runStep() })
     );
+    loadDownloadLinks(order, listEl);
   }
 }
 
@@ -453,7 +530,7 @@ function renderCompleteStep(order) {
   });
 
   panelEl.append(
-    el("h2", { textContent: "Schritt 9 · Abschließen" }),
+    el("h2", { textContent: "Schritt 7 · Abschließen" }),
     el("p", { textContent: "Alle Schritte erledigt. Verkaufszähler der Designs wird beim Abschließen um 1 erhöht." }),
     errorMsg,
     completeBtn
@@ -478,7 +555,7 @@ function renderForOrder(order) {
     renderStep2DesignPicker(order);
     return;
   }
-  const nextStep = STEP_ORDER.find((s) => !order[s]);
+  const nextStep = STEP_ORDER.find((s) => !isStepDone(order, s));
   if (nextStep) {
     renderStepAction(order, nextStep);
   } else if (order.status !== "Erledigt") {

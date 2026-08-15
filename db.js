@@ -36,18 +36,93 @@ const DEFAULT_CATEGORIES = [
   "Saisonal",
 ];
 
-// Reihenfolge der Bestell-Wizard-Schritte 3-7 (Schritt 1 = Bestellung anlegen,
-// Schritt 2 = Designs zuordnen, Schritt 8 = Abschluss laufen über eigene Funktionen)
-const ORDER_STEPS = [
-  "schritt_rechnung",
-  "schritt_bezahlung",
-  "schritt_download",
-  "schritt_email_vorbereitet",
-  "schritt_verschickt",
-  "schritt_datei_geloescht",
-];
+// Reihenfolge der manuell abzuhakenden Bestell-Wizard-Schritte (Schritt 1 =
+// Bestellung anlegen, Schritt 2 = Designs zuordnen, Schritt 8 = Abschluss
+// laufen über eigene Funktionen). "Kunde hat bestätigt" und "Für Download
+// freigegeben" sind bewusst KEINE eigenen Spalten hier - seit es das
+// Kunden-Portal gibt, leiten die sich direkt aus terms_confirmed_at bzw.
+// download_freigegeben ab (siehe advanceOrderStep/completeOrder), statt als
+// zusätzlicher, potenziell widersprüchlicher Haken parallel gepflegt zu
+// werden. Die alten Spalten schritt_download/schritt_email_vorbereitet/
+// schritt_verschickt (manueller Anhang-Versand vor dem Portal) bleiben in der
+// DB bestehen (historische Daten), werden aber nicht mehr verwendet.
+const ORDER_STEPS = ["schritt_rechnung", "schritt_bezahlung", "schritt_datei_geloescht"];
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// Feldverschlüsselung für Kundendaten in Bestellungen (Name, E-Mail, Instagram,
+// WhatsApp, Notiz, Bestätigungs-IP) - schützt diese Felder, falls die DB-Datei
+// oder ein Backup (z.B. NAS-Sync) in falsche Hände gerät, ohne die restliche
+// App (Designs, Kategorien) anzufassen. Ohne diesen Schlüssel startet der
+// Prozess nicht, analog zu ADMIN_PASSWORD/SESSION_SECRET in server-admin.js.
+const ENCRYPTION_KEY_RAW = process.env.ENCRYPTION_KEY;
+if (!ENCRYPTION_KEY_RAW) {
+  console.error(
+    "ENCRYPTION_KEY muss als Umgebungsvariable gesetzt sein (siehe .env.example). Abbruch."
+  );
+  process.exit(1);
+}
+const ENCRYPTION_KEY = Buffer.from(ENCRYPTION_KEY_RAW, "base64");
+if (ENCRYPTION_KEY.length !== 32) {
+  console.error(
+    "ENCRYPTION_KEY muss ein base64-kodierter 32-Byte-Schlüssel sein (z.B. mit `openssl rand -base64 32` erzeugt). Abbruch."
+  );
+  process.exit(1);
+}
+
+// AES-256-GCM: iv und authTag werden zusammen mit dem Chiffrat gespeichert
+// (Format "iv:authTag:ciphertext", alle base64), da für Entschlüsselung beide
+// zusätzlich zum Schlüssel gebraucht werden. Pro Aufruf ein neuer, zufälliger
+// iv - notwendig, damit zwei gleiche Klartexte (z.B. "E-Mail" als
+// Kontaktpräferenz kommt hier nicht vor, aber z.B. identische Vornamen) nicht
+// zu identischem Chiffrat führen.
+function encryptField(value) {
+  if (value === null || value === undefined) return value;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", ENCRYPTION_KEY, iv);
+  const ciphertext = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString("base64")}:${authTag.toString("base64")}:${ciphertext.toString("base64")}`;
+}
+
+// Erkennt am Format (zwei Doppelpunkte, drei base64-Teile), ob ein Feld schon
+// verschlüsselt ist - für die einmalige Migration bestehender Klartext-Zeilen.
+function looksEncrypted(value) {
+  return typeof value === "string" && /^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/.test(value);
+}
+
+function decryptField(value) {
+  if (value === null || value === undefined || !looksEncrypted(value)) return value;
+  const [ivB64, tagB64, dataB64] = value.split(":");
+  try {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", ENCRYPTION_KEY, Buffer.from(ivB64, "base64"));
+    decipher.setAuthTag(Buffer.from(tagB64, "base64"));
+    const plain = Buffer.concat([decipher.update(Buffer.from(dataB64, "base64")), decipher.final()]);
+    return plain.toString("utf8");
+  } catch {
+    return null; // falscher/rotierter Schlüssel oder beschädigtes Feld
+  }
+}
+
+// Kundendaten-Felder der orders-Tabelle, die verschlüsselt abgelegt werden.
+const ORDER_PII_FIELDS = ["kunde_name", "kunde_email", "kunde_instagram", "kunde_whatsapp", "notiz", "terms_confirmed_ip"];
+
+function encryptOrderFields(obj) {
+  const result = { ...obj };
+  for (const field of ORDER_PII_FIELDS) {
+    if (result[field] !== undefined) result[field] = encryptField(result[field]);
+  }
+  return result;
+}
+
+function decryptOrderRow(row) {
+  if (!row) return row;
+  const result = { ...row };
+  for (const field of ORDER_PII_FIELDS) {
+    if (result[field] !== undefined) result[field] = decryptField(result[field]);
+  }
+  return result;
+}
 
 const db = new Database(DB_FILE);
 db.pragma("journal_mode = WAL");
@@ -153,6 +228,11 @@ ensureColumn("design_images", "typ", "TEXT");
 ensureColumn("orders", "kunde_instagram", "TEXT");
 ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
+// Von der Kundin (öffentliche Anfrage) oder Mitarbeitenden (Bestellung
+// neu/bearbeiten) pro zugeordnetem Design ausgewählte Bild-Varianten, als
+// JSON-Array der nummerierten Labels (z.B. ["1. Design", "3. Motiv 2"]).
+// NULL/kein Eintrag = keine spezifische Variante gewünscht (ganzes Design).
+ensureColumn("order_designs", "varianten", "TEXT");
 // Neuer Schritt "Auf Bezahlung warten" zwischen Rechnung und Download - für
 // Bestellungen, die schon weiter waren als der neue Schritt (schritt_download
 // bereits erledigt), rückwirkend als erledigt markieren, sonst würden sie
@@ -205,6 +285,38 @@ for (const row of db.prepare("SELECT id FROM orders WHERE access_token IS NULL")
   db.prepare("UPDATE orders SET access_token = ?, token_created_at = ? WHERE id = ?")
     .run(generateOrderToken(), new Date().toISOString(), row.id);
 }
+
+// Einmalige Migration: bestehende Klartext-Kundendaten (von vor Einführung
+// der Feldverschlüsselung) verschlüsseln. looksEncrypted() am Namen-Feld
+// erkennt bereits migrierte Zeilen, damit das bei jedem Serverstart nicht
+// erneut über alle Bestellungen läuft.
+function migrateEncryptOrderFields() {
+  const rows = db.prepare(`
+    SELECT id, kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, notiz, terms_confirmed_ip
+    FROM orders
+  `).all();
+  const toMigrate = rows.filter((row) => !looksEncrypted(row.kunde_name));
+  if (toMigrate.length === 0) return;
+  const update = db.prepare(`
+    UPDATE orders SET kunde_name = ?, kunde_email = ?, kunde_instagram = ?, kunde_whatsapp = ?, notiz = ?, terms_confirmed_ip = ?
+    WHERE id = ?
+  `);
+  const migrate = db.transaction((rows) => {
+    for (const row of rows) {
+      update.run(
+        encryptField(row.kunde_name),
+        encryptField(row.kunde_email),
+        encryptField(row.kunde_instagram),
+        encryptField(row.kunde_whatsapp),
+        encryptField(row.notiz),
+        encryptField(row.terms_confirmed_ip),
+        row.id
+      );
+    }
+  });
+  migrate(toMigrate);
+}
+migrateEncryptOrderFields();
 
 migrateFromLegacyJson();
 backfillDesignImages();
@@ -518,10 +630,10 @@ function createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp,
     INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status, access_token, token_created_at)
     VALUES (?, ?, ?, ?, ?, ?, 'Offen', ?, ?)
   `).run(
-    kunde_name,
-    kunde_email,
-    kunde_instagram || "",
-    kunde_whatsapp || "",
+    encryptField(kunde_name),
+    encryptField(kunde_email),
+    encryptField(kunde_instagram || ""),
+    encryptField(kunde_whatsapp || ""),
     kontakt_praeferenz || "E-Mail",
     new Date().toISOString(),
     generateOrderToken(),
@@ -530,11 +642,17 @@ function createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp,
   return getOrder(info.lastInsertRowid);
 }
 
-function setOrderDesigns(orderId, designIds) {
-  const setDesigns = db.transaction((ids) => {
+// variantenMap: { [designId]: string[] } - von der Kundin (öffentliche
+// Anfrage) oder Mitarbeitenden (Bestellung neu/bearbeiten) pro Design
+// ausgewählte Varianten-Labels, optional.
+function setOrderDesigns(orderId, designIds, variantenMap = {}) {
+  const setDesigns = db.transaction((ids, varianten) => {
     db.prepare("DELETE FROM order_designs WHERE order_id = ?").run(orderId);
-    const insert = db.prepare("INSERT INTO order_designs (order_id, design_id) VALUES (?, ?)");
-    for (const designId of ids) insert.run(orderId, designId);
+    const insert = db.prepare("INSERT INTO order_designs (order_id, design_id, varianten) VALUES (?, ?, ?)");
+    for (const designId of ids) {
+      const selected = Array.isArray(varianten[designId]) ? varianten[designId].filter((v) => typeof v === "string") : [];
+      insert.run(orderId, designId, selected.length > 0 ? JSON.stringify(selected) : null);
+    }
     // Wenn der Kunde die Bestellung schon über das Order-Portal bestätigt
     // hatte, macht eine nachträgliche Design-Änderung diese Bestätigung
     // ungültig - Kunde muss die (jetzt andere) Bestellung erneut bestätigen.
@@ -543,19 +661,22 @@ function setOrderDesigns(orderId, designIds) {
       WHERE id = ? AND terms_confirmed_at IS NOT NULL
     `).run(orderId);
   });
-  setDesigns(designIds);
+  setDesigns(designIds, variantenMap || {});
   return getOrder(orderId);
+}
+
+function designsWithVarianten(orderId) {
+  return db.prepare(`
+    SELECT d.*, od.varianten AS varianten FROM designs d
+    JOIN order_designs od ON od.design_id = d.id
+    WHERE od.order_id = ?
+  `).all(orderId).map((d) => ({ ...d, varianten: d.varianten ? JSON.parse(d.varianten) : [] }));
 }
 
 function getOrder(id) {
   const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
   if (!order) return null;
-  const designs = db.prepare(`
-    SELECT d.* FROM designs d
-    JOIN order_designs od ON od.design_id = d.id
-    WHERE od.order_id = ?
-  `).all(id);
-  return { ...order, designs };
+  return decryptOrderRow({ ...order, designs: designsWithVarianten(id) });
 }
 
 // --- Order-Portal (Kunden-Bestätigungsseite) ---
@@ -563,18 +684,13 @@ function getOrder(id) {
 function getOrderByToken(token) {
   const order = db.prepare("SELECT * FROM orders WHERE access_token = ?").get(token);
   if (!order) return null;
-  const designs = db.prepare(`
-    SELECT d.* FROM designs d
-    JOIN order_designs od ON od.design_id = d.id
-    WHERE od.order_id = ?
-  `).all(order.id);
-  return { ...order, designs };
+  return decryptOrderRow({ ...order, designs: designsWithVarianten(order.id) });
 }
 
 function confirmOrderTerms(orderId, ip, textSnapshot) {
   const info = db
     .prepare("UPDATE orders SET terms_confirmed_at = ?, terms_confirmed_ip = ?, terms_text_snapshot = ? WHERE id = ?")
-    .run(new Date().toISOString(), ip, textSnapshot, orderId);
+    .run(new Date().toISOString(), encryptField(ip), textSnapshot, orderId);
   if (info.changes === 0) return null;
   return getOrder(orderId);
 }
@@ -621,7 +737,7 @@ function listOrders(status) {
     JOIN order_designs od ON od.design_id = d.id
     WHERE od.order_id = ?
   `);
-  return orders.map((order) => ({ ...order, designs: designCountStmt.all(order.id) }));
+  return orders.map((order) => decryptOrderRow({ ...order, designs: designCountStmt.all(order.id) }));
 }
 
 const ORDER_STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt", "Storniert"];
@@ -647,7 +763,17 @@ function updateOrder(id, changes) {
   const sanitized = {};
   for (const key of Object.keys(changes)) {
     if (!ORDER_UPDATE_FIELDS.includes(key)) continue;
-    sanitized[key] = ORDER_STEPS.includes(key) ? (changes[key] ? 1 : 0) : changes[key];
+    if (ORDER_STEPS.includes(key)) sanitized[key] = changes[key] ? 1 : 0;
+    else if (ORDER_PII_FIELDS.includes(key)) sanitized[key] = encryptField(changes[key]);
+    else sanitized[key] = changes[key];
+  }
+
+  // Gleiche Kopplung wie in advanceOrderStep: Bezahlung erhalten gibt Dateien
+  // + Rechnung automatisch frei, auch wenn "bezahlt" hier über die freie
+  // Bearbeitung an-/abgehakt wird statt über den Wizard-Schritt. Nur beim
+  // Wechsel von nicht-bezahlt zu bezahlt auslösen, nicht bei jedem Speichern.
+  if (sanitized.schritt_bezahlung === 1 && !existing.schritt_bezahlung) {
+    sanitized.download_freigegeben = 1;
   }
 
   const fields = Object.keys(sanitized);
@@ -674,8 +800,15 @@ function deleteOrder(id) {
   return existing;
 }
 
-// Setzt den angegebenen Wizard-Schritt (Schritte 3-7), lehnt ab wenn der
-// vorherige Schritt noch nicht erledigt ist oder noch keine Designs zugeordnet sind
+// Setzt den angegebenen Wizard-Schritt, lehnt ab wenn der vorherige Schritt
+// noch nicht erledigt ist oder noch keine Designs zugeordnet sind.
+// "Kunde hat bestätigt" läuft NICHT über diese Funktion (siehe
+// ORDER_STEPS-Kommentar) - schritt_bezahlung prüft es deshalb hier explizit
+// zusätzlich zur normalen ORDER_STEPS-Kette (die Kundin muss dem Angebot erst
+// zugestimmt haben, bevor eine Zahlung dafür verbucht wird). Bezahlung
+// erhalten setzt automatisch download_freigegeben - Dateien und Rechnung
+// sollen der Kundin ohne separaten manuellen Klick zugänglich werden, sobald
+// bezahlt ist.
 function advanceOrderStep(orderId, stepName) {
   if (!ORDER_STEPS.includes(stepName)) {
     throw new Error(`Unbekannter Schritt: ${stepName}`);
@@ -692,12 +825,21 @@ function advanceOrderStep(orderId, stepName) {
       throw new Error(`Vorheriger Schritt "${ORDER_STEPS[i]}" ist noch nicht erledigt`);
     }
   }
+  if (stepName === "schritt_bezahlung" && !order.terms_confirmed_at) {
+    throw new Error('Vorheriger Schritt "Kunde hat bestätigt" ist noch nicht erledigt');
+  }
+  if (stepName === "schritt_datei_geloescht" && !order.download_freigegeben) {
+    throw new Error('Vorheriger Schritt "Für Download freigegeben" ist noch nicht erledigt');
+  }
 
   db.prepare(`UPDATE orders SET ${stepName} = 1, status = 'In Bearbeitung' WHERE id = ?`).run(orderId);
+  if (stepName === "schritt_bezahlung") {
+    db.prepare("UPDATE orders SET download_freigegeben = 1 WHERE id = ?").run(orderId);
+  }
   return getOrder(orderId);
 }
 
-// Schritt 8: schließt die Bestellung ab und erhöht den Verkaufszähler der verknüpften Designs
+// Schritt 7: schließt die Bestellung ab und erhöht den Verkaufszähler der verknüpften Designs
 const completeOrder = db.transaction((orderId) => {
   const order = getOrder(orderId);
   if (!order) return null;
@@ -705,6 +847,12 @@ const completeOrder = db.transaction((orderId) => {
     if (!order[step]) {
       throw new Error(`Schritt "${step}" ist noch nicht erledigt`);
     }
+  }
+  if (!order.terms_confirmed_at) {
+    throw new Error('Schritt "Kunde hat bestätigt" ist noch nicht erledigt');
+  }
+  if (!order.download_freigegeben) {
+    throw new Error('Schritt "Für Download freigegeben" ist noch nicht erledigt');
   }
 
   db.prepare("UPDATE orders SET status = 'Erledigt' WHERE id = ?").run(orderId);

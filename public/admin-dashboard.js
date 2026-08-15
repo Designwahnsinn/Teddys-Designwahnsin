@@ -10,6 +10,38 @@ fetch("/api/config")
       </div>`;
   });
 
+// --- Neue Anfragen ---
+// Website-Anfragen legen automatisch eine Bestellung mit Status "Offen" und
+// einer mit "[Website-Anfrage]" beginnenden Notiz an (siehe POST
+// /api/public/inquiries in server-admin.js) - "offen" + dieses Präfix ist der
+// zuverlässigste Weg, "neu und noch nicht angeschaut" zu erkennen, ohne ein
+// eigenes Gesehen/Ungesehen-Feld einzuführen.
+const newInquiriesBadge = document.getElementById("new-inquiries-badge");
+const BASE_TITLE = document.title;
+
+async function loadNewInquiriesCount() {
+  try {
+    const res = await fetch("/api/admin/orders?status=Offen");
+    if (!res.ok) return;
+    const orders = await res.json();
+    const count = orders.filter((o) => (o.notiz || "").startsWith("[Website-Anfrage]")).length;
+    if (count > 0) {
+      newInquiriesBadge.textContent = String(count);
+      newInquiriesBadge.hidden = false;
+      document.title = `(${count}) ${BASE_TITLE}`;
+    } else {
+      newInquiriesBadge.hidden = true;
+      document.title = BASE_TITLE;
+    }
+  } catch {
+    // Badge bleibt einfach versteckt, wenn die Anfrage fehlschlägt
+  }
+}
+loadNewInquiriesCount();
+// Neu eintreffende Anfragen sollen auch sichtbar werden, während die Seite
+// schon offen ist, ohne dass jemand manuell neu lädt.
+setInterval(loadNewInquiriesCount, 60 * 1000);
+
 // --- Feedback & offene Punkte ---
 const feedbackForm = document.getElementById("feedback-form");
 const feedbackText = document.getElementById("feedback-text");

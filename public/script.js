@@ -68,9 +68,15 @@ function saveVarianten() {
 
 let variantenSelection = loadVarianten();
 
-function variantLabel(img) {
+// Nummer-Präfix macht das Label sowohl für Kundinnen eindeutig zuordenbar
+// (dieselbe Nummer sitzt als Badge auf dem passenden Thumbnail) als auch
+// technisch eindeutig - ohne Nummer hätten z.B. zwei "Hintergrund-Variante"-
+// Bilder ohne eigene Bezeichnung identische Labels und würden in der
+// Auswahl (die über den Label-Text als Schlüssel läuft) ununterscheidbar.
+function variantLabel(img, index) {
   const typ = img.typ || (img.hintergrundVariante ? "Hintergrund-Variante" : "Design");
-  return img.bezeichnung ? `${typ} – ${img.bezeichnung}` : typ;
+  const base = img.bezeichnung ? `${typ} – ${img.bezeichnung}` : typ;
+  return `${index}. ${base}`;
 }
 
 function el(tag, props, children) {
@@ -184,8 +190,8 @@ function buildVariantDropdown(design, images) {
   }
   updateBtnLabel();
 
-  images.forEach((img) => {
-    const label = variantLabel(img);
+  images.forEach((img, i) => {
+    const label = variantLabel(img, i + 1);
     const checkbox = el("input", { type: "checkbox", checked: selected.has(label) });
     checkbox.addEventListener("change", () => {
       if (checkbox.checked) selected.add(label);
@@ -225,9 +231,10 @@ async function loadLightboxThumbs(design) {
     const images = await res.json();
     if (currentLightboxDesign !== design || images.length < 2) return;
 
-    images.forEach((img) => {
+    images.forEach((img, i) => {
       const thumb = el("button", { type: "button", className: "lightbox-thumb" }, [
         el("img", { src: img.previewImage || img.image, alt: img.bezeichnung || img.kategorie, loading: "lazy" }),
+        el("span", { className: "lightbox-thumb-number", textContent: String(i + 1) }),
       ]);
       if (img.image === design.image) thumb.classList.add("active");
       thumb.addEventListener("click", () => {

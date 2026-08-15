@@ -677,13 +677,17 @@ app.post("/api/admin/orders", requireAuth, (req, res) => {
   res.status(201).json(db.createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz }));
 });
 
-// Schritt 2: Designs zuordnen
+// Schritt 2: Designs zuordnen (optional mit varianten: { [designId]: string[] } -
+// z.B. von "Bestellung neu/bearbeiten", wenn Mitarbeitende gezielte
+// Bild-Varianten für ein Design festhalten wollen, analog zur öffentlichen
+// Anfrage-Lightbox)
 app.patch("/api/admin/orders/:id/designs", requireAuth, (req, res) => {
   const designIds = Array.isArray(req.body.designIds) ? req.body.designIds : [];
   if (designIds.length === 0) {
     return res.status(400).json({ error: "Mindestens ein Design muss ausgewählt werden" });
   }
-  const order = db.setOrderDesigns(Number(req.params.id), designIds);
+  const varianten = req.body.varianten && typeof req.body.varianten === "object" ? req.body.varianten : {};
+  const order = db.setOrderDesigns(Number(req.params.id), designIds, varianten);
   if (!order) return res.status(404).json({ error: "Bestellung nicht gefunden" });
   res.json(order);
 });
@@ -757,6 +761,20 @@ app.post("/api/admin/orders/:id/freigabe", requireAuth, (req, res) => {
   }
   const updated = db.setDownloadFreigabe(Number(req.params.id), req.body.freigegeben);
   if (!updated) return res.status(404).json({ error: "Bestellung nicht gefunden" });
+  res.json(updated);
+});
+
+// Fallback für Bestellungen, die nicht über den Portal-Link bestätigt wurden
+// (z.B. telefonisch oder per Instagram-DM zugesagt) - setzt denselben
+// terms_confirmed_at-Status wie eine echte Portal-Bestätigung, damit der
+// "Kunde hat bestätigt"-Schritt im Wizard genauso weiterläuft.
+app.post("/api/admin/orders/:id/confirm-manually", requireAuth, (req, res) => {
+  const order = db.getOrder(Number(req.params.id));
+  if (!order) return res.status(404).json({ error: "Bestellung nicht gefunden" });
+  if (order.designs.length === 0) {
+    return res.status(400).json({ error: "Es müssen zuerst Designs zugeordnet werden" });
+  }
+  const updated = db.confirmOrderTerms(order.id, "manuell (Mitarbeiter)", ORDER_PORTAL_TERMS_TEXT);
   res.json(updated);
 });
 

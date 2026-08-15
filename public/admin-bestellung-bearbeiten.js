@@ -7,12 +7,12 @@ const KONTAKT_PRAEFERENZ_VALUES = ["E-Mail", "WhatsApp"];
 // Zuständen ("Rechnung erstellt" liest sich auch unmarkiert noch sinnvoll als
 // Handlungsbeschreibung). "Auf Bezahlung warten"/"gewartet" nicht - deshalb
 // dort ein {todo, done}-Paar statt eines starren Texts.
+// "Kunde hat bestätigt" und "Für Download freigegeben" sind hier keine
+// Checkboxen - sie leiten sich aus terms_confirmed_at/download_freigegeben ab
+// und haben eigene, dedizierte Bedienelemente weiter unten (Order-Portal-Block).
 const STEP_LABELS = {
   schritt_rechnung: "Angebot/Rechnung erstellt",
   schritt_bezahlung: { todo: "Auf Bezahlung warten", done: "Ist bezahlt" },
-  schritt_download: "Design(s) heruntergeladen",
-  schritt_email_vorbereitet: "E-Mail vorbereitet",
-  schritt_verschickt: "Als verschickt markiert",
   schritt_datei_geloescht: "Datei(en) lokal gelöscht",
 };
 
@@ -35,6 +35,76 @@ function el(tag, props, children) {
 function formatPrice(price) {
   return price != null ? `${Number(price).toFixed(2)} €` : "";
 }
+
+// Nummeriertes Label wie im öffentlichen Varianten-Dropdown (siehe
+// public/script.js) - macht z.B. zwei "Hintergrund-Variante"-Bilder ohne
+// eigene Bezeichnung eindeutig unterscheid- und auswählbar.
+function variantLabel(img, index) {
+  const typ = img.typ || (img.hintergrundVariante ? "Hintergrund-Variante" : "Design");
+  const base = img.bezeichnung ? `${typ} – ${img.bezeichnung}` : typ;
+  return `${index}. ${base}`;
+}
+
+// Mehrfachauswahl-Dropdown für die Bild-Varianten eines Designs, analog zur
+// öffentlichen Anfrage-Lightbox. Bilder werden erst beim ersten Öffnen
+// nachgeladen, damit nicht für jedes zugeordnete Design sofort ein Request rausgeht.
+function buildVariantPicker(design, selectedSet) {
+  const wrap = el("div", { className: "variant-dropdown" });
+  const btn = el("button", { type: "button", className: "variant-dropdown-btn" });
+  const panel = el("div", { className: "variant-dropdown-panel", hidden: true });
+  let loaded = false;
+
+  function updateBtnLabel() {
+    btn.textContent = selectedSet.size > 0
+      ? `${selectedSet.size} Variante${selectedSet.size === 1 ? "" : "n"} ausgewählt ▾`
+      : "Variante(n) auswählen (optional) ▾";
+  }
+  updateBtnLabel();
+
+  async function ensureLoaded() {
+    if (loaded) return;
+    loaded = true;
+    panel.textContent = "Lädt …";
+    try {
+      const res = await fetch(`/api/admin/designs/${design.id}/images`);
+      const images = (res.ok ? await res.json() : []).filter((img) => img.wasserzeichen);
+      panel.innerHTML = "";
+      if (images.length === 0) {
+        panel.appendChild(el("p", { className: "muted", textContent: "Keine Varianten hinterlegt." }));
+        return;
+      }
+      images.forEach((img, i) => {
+        const label = variantLabel(img, i + 1);
+        const checkbox = el("input", { type: "checkbox", checked: selectedSet.has(label) });
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) selectedSet.add(label);
+          else selectedSet.delete(label);
+          updateBtnLabel();
+        });
+        panel.appendChild(
+          el("label", { className: "variant-dropdown-option" }, [checkbox, document.createTextNode(` ${label}`)])
+        );
+      });
+    } catch {
+      panel.innerHTML = "";
+      panel.appendChild(el("p", { className: "muted", textContent: "Fehler beim Laden der Varianten." }));
+    }
+  }
+
+  btn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (panel.hidden) await ensureLoaded();
+    panel.hidden = !panel.hidden;
+  });
+
+  wrap.append(btn, panel);
+  return wrap;
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".variant-dropdown")) return;
+  document.querySelectorAll(".variant-dropdown-panel:not([hidden])").forEach((p) => { p.hidden = true; });
+});
 
 async function loadOrder(id) {
   const res = await fetch(`/api/admin/orders/${id}`);
@@ -81,16 +151,26 @@ function render(order, allDesigns) {
   // --- Designs (alle, auch bereits verkaufte, damit historische Zuordnungen sichtbar bleiben) ---
   const designList = el("div", { className: "wizard-design-list" });
   const designCheckboxes = new Map();
+  // designId -> Set<Varianten-Label>, vorbelegt aus den aktuell zugeordneten Designs.
+  const variantenSelection = new Map();
+  order.designs.forEach((d) => variantenSelection.set(d.id, new Set(d.varianten || [])));
+
   allDesigns.forEach((d) => {
     const checkbox = el("input", { type: "checkbox", checked: assignedIds.has(d.id) });
     designCheckboxes.set(d.id, checkbox);
-    designList.appendChild(
-      el("label", { className: "wizard-design-row" }, [
-        checkbox,
-        el("img", { src: d.image, alt: d.name }),
-        el("span", { textContent: `${d.id} · ${d.name}${d.price != null ? " · " + formatPrice(d.price) : ""}` }),
-      ])
-    );
+    if (!variantenSelection.has(d.id)) variantenSelection.set(d.id, new Set());
+
+    const row = el("label", { className: "wizard-design-row" }, [
+      checkbox,
+      el("img", { src: d.image, alt: d.name }),
+      el("span", { textContent: `${d.id} · ${d.name}${d.price != null ? " · " + formatPrice(d.price) : ""}` }),
+    ]);
+    const variantRow = el("div", { className: "wizard-design-variant-row", hidden: !checkbox.checked }, [
+      buildVariantPicker(d, variantenSelection.get(d.id)),
+    ]);
+    checkbox.addEventListener("change", () => { variantRow.hidden = !checkbox.checked; });
+
+    designList.appendChild(el("div", { className: "wizard-design-item" }, [row, variantRow]));
   });
 
   // --- Schritte, frei an-/abhakbar ---
@@ -128,6 +208,12 @@ function render(order, allDesigns) {
     };
     stepCheckboxes.forEach((cb, key) => { patchBody[key] = cb.checked; });
 
+    const varianten = Object.fromEntries(
+      [...variantenSelection]
+        .filter(([id, set]) => designIds.includes(id) && set.size > 0)
+        .map(([id, set]) => [id, [...set]])
+    );
+
     const [orderRes, designsRes] = await Promise.all([
       fetch(`/api/admin/orders/${order.id}`, {
         method: "PATCH",
@@ -137,7 +223,7 @@ function render(order, allDesigns) {
       fetch(`/api/admin/orders/${order.id}/designs`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ designIds }),
+        body: JSON.stringify({ designIds, varianten }),
       }),
     ]);
 
@@ -167,6 +253,25 @@ function render(order, allDesigns) {
     textContent: order.terms_confirmed_at
       ? `✅ Vom Kunden bestätigt am ${new Date(order.terms_confirmed_at).toLocaleString("de-DE")} (IP: ${order.terms_confirmed_ip})`
       : "⏳ Noch nicht vom Kunden bestätigt.",
+  });
+  // Fallback für telefonisch/per Instagram-DM zugesagte Bestellungen ohne
+  // Portal-Klick - setzt denselben terms_confirmed_at-Status wie eine echte
+  // Portal-Bestätigung.
+  const confirmManuallyBtn = el("button", {
+    type: "button",
+    className: "cancel-btn",
+    textContent: "Manuell bestätigen (Kunde hat anders zugesagt)",
+    hidden: Boolean(order.terms_confirmed_at),
+  });
+  confirmManuallyBtn.addEventListener("click", async () => {
+    const res = await fetch(`/api/admin/orders/${order.id}/confirm-manually`, { method: "POST" });
+    if (res.ok) {
+      const updated = await loadOrder(order.id);
+      render(updated, allDesigns);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      errorMsg.textContent = data.error || "Fehler beim Bestätigen.";
+    }
   });
 
   const freigabeLabel = el("label", { className: "online-toggle-field" });
@@ -213,11 +318,13 @@ function render(order, allDesigns) {
     designList,
     el("label", { textContent: "Notiz (auch für Designs, die es noch nicht im System gibt)" }), notizInput,
     el("h2", { textContent: "Schritte" }),
+    el("p", { className: "wizard-hint", textContent: "\"Ist bezahlt\" neu aktivieren gibt Dateien + Rechnung automatisch für den Kunden-Download frei (siehe Order-Portal-Bereich unten)." }),
     stepsList,
     el("h2", { textContent: "Order-Portal (Kunden-Bestätigungsseite)" }),
     el("label", { textContent: "Bestätigungslink" }),
     el("div", { className: "card-actions" }, [linkInput, copyBtn]),
     confirmStatus,
+    confirmManuallyBtn,
     freigabeLabel,
     el("div", { className: "card-actions" }, [regenerateBtn]),
     errorMsg,
