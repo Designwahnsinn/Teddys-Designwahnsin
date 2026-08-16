@@ -714,7 +714,7 @@
   padding: 0.5rem 1rem 0;
   font-size: 0.85rem;
 }
-.image-card .card-actions { padding: 0.7rem 1rem 0; }
+.image-card .card-actions { padding: 0.7rem 1rem 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .hauptbild-btn {
   border: 1px solid var(--border);
   background: #fff;
@@ -727,6 +727,27 @@
 .hauptbild-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .hauptbild-btn:disabled { color: var(--accent); border-color: var(--accent); cursor: default; opacity: 0.8; }
 .image-card .delete-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.image-card .bezeichnung-input {
+  display: block;
+  margin: 0.5rem 1rem 0;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  width: calc(100% - 2rem);
+}
+.move-btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.move-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 /* Verkaufsdatei (ohne Wasserzeichen) deutlich hervorheben - das ist die Datei,
    die Kunden tatsächlich erhalten, Fehler hier sind besonders kritisch */

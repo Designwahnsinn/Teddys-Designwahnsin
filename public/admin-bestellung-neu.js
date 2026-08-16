@@ -81,8 +81,13 @@ function buildVariantPicker(design, selectedSet) {
           else selectedSet.delete(label);
           updateBtnLabel();
         });
+        const thumb = el("img", {
+          className: "variant-dropdown-thumb",
+          src: img.previewImage || img.image,
+          alt: "",
+        });
         panel.appendChild(
-          el("label", { className: "variant-dropdown-option" }, [checkbox, document.createTextNode(` ${label}`)])
+          el("label", { className: "variant-dropdown-option" }, [checkbox, thumb, document.createTextNode(` ${label}`)])
         );
       });
     } catch {

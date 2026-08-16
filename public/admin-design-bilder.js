@@ -77,6 +77,26 @@ function renderImageCard(img) {
     }
   });
 
+  const moveUpBtn = el("button", { className: "move-btn", textContent: "↑", title: "Nach oben verschieben" });
+  moveUpBtn.addEventListener("click", async () => {
+    await fetch(`/api/admin/designs/${designId}/images/${img.id}/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ direction: "up" }),
+    });
+    loadImages();
+  });
+
+  const moveDownBtn = el("button", { className: "move-btn", textContent: "↓", title: "Nach unten verschieben" });
+  moveDownBtn.addEventListener("click", async () => {
+    await fetch(`/api/admin/designs/${designId}/images/${img.id}/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ direction: "down" }),
+    });
+    loadImages();
+  });
+
   const deleteBtn = el("button", { className: "delete-btn", textContent: "Löschen" });
   if (img.ist_hauptbild) {
     deleteBtn.disabled = true;
@@ -102,10 +122,11 @@ function renderImageCard(img) {
     typSelectEl.appendChild(el("option", { value: t, textContent: t, selected: t === initialTyp }));
   });
 
-  async function patchEigenschaften() {
+  async function patchEigenschaften(extra) {
     const body = {
       wasserzeichen: wasserzeichenSelectEl.value === "true",
       typ: typSelectEl.value,
+      ...extra,
     };
     // Verkaufsdatei darf nie als sichtbar markiert bleiben - direkt mit korrigieren.
     if (!body.wasserzeichen) body.sichtbar = false;
@@ -116,8 +137,19 @@ function renderImageCard(img) {
     });
     loadImages();
   }
-  wasserzeichenSelectEl.addEventListener("change", patchEigenschaften);
-  typSelectEl.addEventListener("change", patchEigenschaften);
+  wasserzeichenSelectEl.addEventListener("change", () => patchEigenschaften());
+  typSelectEl.addEventListener("change", () => patchEigenschaften());
+
+  // Freihändige Bezeichnung statt automatisch durchnummerierter Namen
+  // ("Bild 2", "Bild 3") - Mitarbeitende sollen z.B. "Hintergrundvariante 4"
+  // frei vergeben können, damit die Auswahl in der Bestellung eindeutig ist.
+  const bezeichnungInput = el("input", {
+    type: "text",
+    className: "bezeichnung-input",
+    placeholder: "Bezeichnung (z. B. Hintergrundvariante 1)",
+    value: img.bezeichnung || "",
+  });
+  bezeichnungInput.addEventListener("change", () => patchEigenschaften({ bezeichnung: bezeichnungInput.value.trim() }));
 
   const verkaufHinweis = isVerkaufsdatei
     ? el("p", { className: "kategorie-verkauf", textContent: "🛒 Verkaufsdatei" })
@@ -128,10 +160,10 @@ function renderImageCard(img) {
     wasserzeichenSelectEl,
     typSelectEl,
     verkaufHinweis,
-    img.bezeichnung ? el("p", { textContent: img.bezeichnung }) : null,
+    bezeichnungInput,
     img.qualityWarning ? el("p", { className: "quality-warning", textContent: `⚠️ ${img.qualityWarning}` }) : null,
     sichtbarLabel,
-    el("div", { className: "card-actions" }, [hauptbildBtn, replaceBtn, replaceInput, deleteBtn]),
+    el("div", { className: "card-actions" }, [moveUpBtn, moveDownBtn, hauptbildBtn, replaceBtn, replaceInput, deleteBtn]),
   ].filter(Boolean));
 }
 

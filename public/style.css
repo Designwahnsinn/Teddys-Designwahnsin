@@ -517,6 +517,14 @@ h2 {
 }
 .variant-dropdown-option { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; }
 .variant-dropdown-option input { width: auto; }
+.variant-dropdown-thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
 
 .btn {
   display: block;

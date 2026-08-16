@@ -666,9 +666,9 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 30
 });
 
 app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
-  const { sichtbar, wasserzeichen, typ } = req.body;
-  if (sichtbar === undefined && wasserzeichen === undefined && typ === undefined) {
-    return res.status(400).json({ error: "sichtbar, wasserzeichen oder typ ist Pflichtfeld" });
+  const { sichtbar, wasserzeichen, typ, bezeichnung } = req.body;
+  if (sichtbar === undefined && wasserzeichen === undefined && typ === undefined && bezeichnung === undefined) {
+    return res.status(400).json({ error: "sichtbar, wasserzeichen, typ oder bezeichnung ist Pflichtfeld" });
   }
 
   let updated = null;
@@ -680,31 +680,54 @@ app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
     if (!updated) return res.status(404).json({ error: "Bild nicht gefunden" });
   }
 
-  if (wasserzeichen !== undefined || typ !== undefined) {
+  if (wasserzeichen !== undefined || typ !== undefined || bezeichnung !== undefined) {
     if (wasserzeichen !== undefined && typeof wasserzeichen !== "boolean") {
       return res.status(400).json({ error: "wasserzeichen muss ein boolean sein" });
     }
     if (typ !== undefined && !db.IMAGE_TYP_VALUES.includes(typ)) {
       return res.status(400).json({ error: "Ungültiger Bildtyp" });
     }
-    const result = db.setDesignImageEigenschaften(req.params.imageId, { wasserzeichen, typ });
+    if (bezeichnung !== undefined && typeof bezeichnung !== "string") {
+      return res.status(400).json({ error: "bezeichnung muss Text sein" });
+    }
+    const result = db.setDesignImageEigenschaften(req.params.imageId, {
+      wasserzeichen,
+      typ,
+      bezeichnung: bezeichnung !== undefined ? bezeichnung.trim() : undefined,
+    });
     if (!result) return res.status(404).json({ error: "Bild nicht gefunden" });
     const { old: previous, updated: afterUpdate } = result;
     updated = afterUpdate;
-    if (previous.kategorie !== afterUpdate.kategorie) {
+    // Sortierte Ablage (uploads-sorted/, Quelle für den Google-Drive-Sync) nutzt
+    // Kategorie und Bezeichnung im Dateipfad - bei Änderung an einer der beiden
+    // alte Datei entfernen und unter dem neuen Namen/Ordner neu ablegen.
+    if (previous.kategorie !== afterUpdate.kategorie || previous.bezeichnung !== afterUpdate.bezeichnung) {
       const ext = previous.image.split(".").pop();
       sortedUploads.removeSorted(req.params.id, previous.kategorie, previous.bezeichnung, ext);
       sortedUploads.mirrorSorted(
         path.join(UPLOADS_DIR, path.basename(previous.image)),
         req.params.id,
         afterUpdate.kategorie,
-        previous.bezeichnung,
+        afterUpdate.bezeichnung,
         ext
       );
     }
   }
 
   res.json(updated);
+});
+
+// Manuelle Umsortierung der Bild-Varianten (wirkt sich sowohl auf die
+// Reihenfolge in dieser Verwaltung als auch auf die öffentliche Galerie aus,
+// siehe getDesignImages() in db.js).
+app.post("/api/admin/designs/:id/images/:imageId/move", requireAuth, (req, res) => {
+  const { direction } = req.body;
+  if (direction !== "up" && direction !== "down") {
+    return res.status(400).json({ error: "direction muss 'up' oder 'down' sein" });
+  }
+  const images = db.moveDesignImage(req.params.imageId, direction);
+  if (!images) return res.status(404).json({ error: "Bild nicht gefunden" });
+  res.json(images);
 });
 
 // Ersetzt die Datei eines bestehenden Bilds (z.B. falsche Auflösung durch
@@ -1078,6 +1101,33 @@ function pickPreviewImage(designId) {
   return anyWatermarked ? anyWatermarked.previewImage || anyWatermarked.image : null;
 }
 
+// Identisch zu variantLabel() in public/admin-bestellung-neu.js - nur damit
+// lassen sich die dort in order_designs.varianten gespeicherten Label-Strings
+// ("10. Hintergrund-Variante – Bild 10") wieder einem Bild zuordnen.
+function variantLabel(img, index) {
+  const typ = img.typ || (img.hintergrundVariante ? "Hintergrund-Variante" : "Design");
+  const base = img.bezeichnung ? `${typ} – ${img.bezeichnung}` : typ;
+  return `${index}. ${base}`;
+}
+
+// Verkaufsdateien (Ohne Wasserzeichen) eines Designs, eingeschränkt auf die im
+// Bestell-Wizard ausgewählte(n) Variante(n) - eine Kundin, die z.B. nur die
+// Hintergrund-Variante bestellt hat, soll nicht plötzlich alle Motive der
+// Design-Vorlage zum Download bekommen. Wurde (noch) keine Variante
+// ausgewählt (leeres varianten-Array, z.B. bei simplen Alt-Bestellungen ohne
+// mehrere Varianten), bleibt es beim bisherigen Verhalten: alles freigeben.
+// Verkaufs- und Wasserzeichen-Bilder werden paarweise beim Upload angelegt
+// (siehe persistUploadedImagePair) und behalten dieselbe relative Reihenfolge,
+// daher ergibt der Index in beiden Listen dasselbe Label.
+function deliverableImagesForDesign(design) {
+  const images = db.getDesignImages(design.id);
+  const watermarked = images.filter((img) => img.wasserzeichen);
+  const clean = images.filter((img) => !img.wasserzeichen);
+  if (!design.varianten || design.varianten.length === 0) return clean;
+  const labels = watermarked.map((img, i) => variantLabel(img, i + 1));
+  return clean.filter((_, i) => design.varianten.includes(labels[i]));
+}
+
 app.options("/api/public/order/:token", publicCors);
 app.get("/api/public/order/:token", publicCors, orderPortalViewLimiter, (req, res) => {
   const order = db.getOrderByToken(req.params.token);
@@ -1092,7 +1142,7 @@ app.get("/api/public/order/:token", publicCors, orderPortalViewLimiter, (req, re
     price: d.berechneterPreis,
     previewImage: pickPreviewImage(d.id),
     deliverables: order.download_freigegeben
-      ? db.getDesignImages(d.id).filter((img) => !img.wasserzeichen).map((img) => ({ id: img.id, bezeichnung: img.bezeichnung }))
+      ? deliverableImagesForDesign(d).map((img) => ({ id: img.id, bezeichnung: img.bezeichnung }))
       : [],
   }));
 
@@ -1144,8 +1194,8 @@ app.get("/api/public/order/:token/download/:imageId", publicCors, orderPortalVie
   }
 
   const image = order.designs
-    .flatMap((d) => db.getDesignImages(d.id))
-    .find((img) => String(img.id) === req.params.imageId && !img.wasserzeichen);
+    .flatMap((d) => deliverableImagesForDesign(d))
+    .find((img) => String(img.id) === req.params.imageId);
   if (!image) return res.status(404).json({ error: "Datei nicht gefunden." });
 
   const target = path.join(UPLOADS_DIR, path.basename(image.image));

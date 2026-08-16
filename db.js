@@ -252,6 +252,14 @@ ensureColumn("design_images", "qualityWarning", "TEXT");
 // vor Einführung dieses Features, Fallback bleibt das Original.
 ensureColumn("design_images", "previewImage", "TEXT");
 ensureColumn("design_images", "typ", "TEXT");
+// Manuelle Reihenfolge der Bild-Varianten (Admin-Verwaltung + öffentliche
+// Galerie nutzen dieselbe Sortierung) - ohne diese Spalte bestimmt nur die
+// Einfügereihenfolge (rowid) die Anzeige, Mitarbeitende wollen sie aber
+// selbst festlegen können. Bestehende Bilder behalten ihre bisherige
+// Reihenfolge (id als Startwert), erst danach per moveDesignImage änderbar.
+if (ensureColumn("design_images", "sortOrder", "INTEGER")) {
+  db.exec("UPDATE design_images SET sortOrder = id WHERE sortOrder IS NULL");
+}
 ensureColumn("orders", "kunde_instagram", "TEXT");
 ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
@@ -365,8 +373,8 @@ function backfillDesignImages() {
   `).all();
 
   const insert = db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, typ, bezeichnung, image, sichtbar, ist_hauptbild, createdAt)
-    VALUES (?, 'Mit Wasserzeichen', 'Design', 'Hauptbild', ?, 1, 1, ?)
+    INSERT INTO design_images (design_id, kategorie, typ, bezeichnung, image, sichtbar, ist_hauptbild, sortOrder, createdAt)
+    VALUES (?, 'Mit Wasserzeichen', 'Design', 'Hauptbild', ?, 1, 1, 1, ?)
   `);
   const insertMany = db.transaction((rows) => {
     for (const d of rows) insert.run(d.id, d.image, new Date().toISOString());
@@ -472,8 +480,8 @@ function addDesign(design) {
     createdAt: design.createdAt,
   });
   db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, createdAt)
-    VALUES (?, 'Mit Wasserzeichen', 'Design', 'Hauptbild', ?, ?, 1, 1, ?, ?)
+    INSERT INTO design_images (design_id, kategorie, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, sortOrder, createdAt)
+    VALUES (?, 'Mit Wasserzeichen', 'Design', 'Hauptbild', ?, ?, 1, 1, ?, 1, ?)
   `).run(design.id, design.image, design.previewImage || null, design.qualityWarning || null, design.createdAt);
   if (design.tags && design.tags.length > 0) setDesignTags(design.id, design.tags);
   return getDesign(design.id);
@@ -544,16 +552,17 @@ function renameDesignId(oldId, newId) {
 // --- Bild-Varianten pro Design ---
 
 function getDesignImages(designId) {
-  return db.prepare("SELECT * FROM design_images WHERE design_id = ? ORDER BY rowid ASC").all(designId);
+  return db.prepare("SELECT * FROM design_images WHERE design_id = ? ORDER BY sortOrder ASC, rowid ASC").all(designId);
 }
 
 function addDesignImage({ design_id, wasserzeichen, typ, bezeichnung, image, previewImage, sichtbar, qualityWarning }) {
   const wz = wasserzeichen ? 1 : 0;
   const hg = typImpliesHintergrundVariante(typ) ? 1 : 0;
+  const maxOrder = db.prepare("SELECT MAX(sortOrder) AS m FROM design_images WHERE design_id = ?").get(design_id).m || 0;
   const info = db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, wasserzeichen, hintergrundVariante, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-  `).run(design_id, kategorieLabel(wz, typ), wz, hg, typ || null, bezeichnung || "", image, previewImage || null, sichtbar ? 1 : 0, qualityWarning || null, new Date().toISOString());
+    INSERT INTO design_images (design_id, kategorie, wasserzeichen, hintergrundVariante, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, sortOrder, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+  `).run(design_id, kategorieLabel(wz, typ), wz, hg, typ || null, bezeichnung || "", image, previewImage || null, sichtbar ? 1 : 0, qualityWarning || null, maxOrder + 1, new Date().toISOString());
   return db.prepare("SELECT * FROM design_images WHERE id = ?").get(info.lastInsertRowid);
 }
 
@@ -579,20 +588,38 @@ function setDesignImageVisibility(imageId, sichtbar) {
   return db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
 }
 
-// Nachträgliche Korrektur der Kategorie (z.B. versehentlich "Mit Wasserzeichen"
-// statt "Ohne Wasserzeichen" gewählt) - gibt die alte Zeile mit zurück, damit
-// der Aufrufer die sortierte Ablage (uploads-sorted/) in den neuen
-// Kategorie-Ordner verschieben kann.
-function setDesignImageEigenschaften(imageId, { wasserzeichen, typ }) {
+// Nachträgliche Korrektur der Kategorie/Bezeichnung (z.B. versehentlich "Mit
+// Wasserzeichen" statt "Ohne Wasserzeichen" gewählt, oder freihändige
+// Umbenennung wie "Hintergrundvariante 3") - gibt die alte Zeile mit zurück,
+// damit der Aufrufer die sortierte Ablage (uploads-sorted/) entsprechend
+// verschieben/umbenennen kann.
+function setDesignImageEigenschaften(imageId, { wasserzeichen, typ, bezeichnung }) {
   const existing = db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
   if (!existing) return null;
   const wz = wasserzeichen === undefined ? existing.wasserzeichen : (wasserzeichen ? 1 : 0);
   const newTyp = typ === undefined ? existing.typ : typ;
   const hg = typ === undefined ? existing.hintergrundVariante : (typImpliesHintergrundVariante(typ) ? 1 : 0);
-  db.prepare("UPDATE design_images SET wasserzeichen = ?, hintergrundVariante = ?, typ = ?, kategorie = ? WHERE id = ?")
-    .run(wz, hg, newTyp, kategorieLabel(wz, newTyp), imageId);
+  const newBezeichnung = bezeichnung === undefined ? existing.bezeichnung : bezeichnung;
+  db.prepare("UPDATE design_images SET wasserzeichen = ?, hintergrundVariante = ?, typ = ?, bezeichnung = ?, kategorie = ? WHERE id = ?")
+    .run(wz, hg, newTyp, newBezeichnung, kategorieLabel(wz, newTyp), imageId);
   return { old: existing, updated: db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId) };
 }
+
+// Vertauscht die Sortierposition eines Bilds mit seinem Nachbarn in der
+// aktuellen Anzeigereihenfolge (Admin-Verwaltung + öffentliche Galerie nutzen
+// dieselbe getDesignImages()-Sortierung). Am jeweiligen Rand ein No-Op.
+const moveDesignImage = db.transaction((imageId, direction) => {
+  const existing = db.prepare("SELECT * FROM design_images WHERE id = ?").get(imageId);
+  if (!existing) return null;
+  const siblings = getDesignImages(existing.design_id);
+  const idx = siblings.findIndex((img) => img.id === existing.id);
+  const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= siblings.length) return siblings;
+  const other = siblings[swapIdx];
+  db.prepare("UPDATE design_images SET sortOrder = ? WHERE id = ?").run(other.sortOrder, existing.id);
+  db.prepare("UPDATE design_images SET sortOrder = ? WHERE id = ?").run(existing.sortOrder, other.id);
+  return getDesignImages(existing.design_id);
+});
 
 // Setzt genau ein Bild als Hauptbild (für die Design-Karte/Lightbox) und
 // spiegelt den Pfad zusätzlich in designs.image, damit der Rest des Codes
@@ -1035,6 +1062,7 @@ module.exports = {
   replaceDesignImage,
   setDesignImageVisibility,
   setDesignImageEigenschaften,
+  moveDesignImage,
   setHauptbild,
   deleteDesignImage,
   listFeedback,
