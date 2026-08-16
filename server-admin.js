@@ -206,17 +206,70 @@ async function generatePreviewImage(buffer) {
   }
 }
 
-async function persistUploadedImage(file) {
+// Festes Wasserzeichen-Bild (Maskottchen + Schriftzug, transparenter
+// Hintergrund) - wird als Kachel-Muster über die Web-Ansicht gelegt. Ein
+// einziges Asset für alle Designs, kein manueller Wasserzeichen-Export in
+// Canva mehr nötig.
+const WATERMARK_PATH = path.join(__dirname, "assets", "watermark.png");
+const WATERMARK_TILE_RATIO = 0.22; // Kachel-Kantenlänge relativ zur kürzeren Bildseite
+
+async function applyWatermark(buffer) {
+  // Erst auf Web-Größe verkleinern, dann kacheln - die "Mit Wasserzeichen"-
+  // Ansicht ist nie die Verkaufsdatei und braucht keine Druckauflösung.
+  const resized = await sharp(buffer)
+    .resize({
+      width: WEB_PREVIEW_MAX_DIMENSION_PX,
+      height: WEB_PREVIEW_MAX_DIMENSION_PX,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .toBuffer();
+  const { width, height } = await sharp(resized).metadata();
+  const tileSize = Math.max(1, Math.round(Math.min(width, height) * WATERMARK_TILE_RATIO));
+  const tile = await sharp(WATERMARK_PATH).resize(tileSize, tileSize).toBuffer();
+
+  // Kachelraster beginnt einen halben Kachel-Versatz vor dem Rand, damit auch
+  // die Bildränder ein (Teil-)Wasserzeichen abbekommen statt frei zu bleiben.
+  const composites = [];
+  for (let y = -tileSize / 2; y < height; y += tileSize) {
+    for (let x = -tileSize / 2; x < width; x += tileSize) {
+      composites.push({ input: tile, left: Math.round(x), top: Math.round(y) });
+    }
+  }
+  return sharp(resized).composite(composites).webp({ quality: WEB_PREVIEW_QUALITY }).toBuffer();
+}
+
+// watermark:true erzeugt automatisch die gekachelte "Mit Wasserzeichen"-
+// Ansicht statt die Originaldatei unverändert zu speichern.
+async function persistUploadedImage(file, { watermark = false } = {}) {
   const detected = await FileType.fromBuffer(file.buffer);
   if (!detected || !ALLOWED_IMAGE_MIME_TYPES.includes(detected.mime)) {
     const err = new Error("Datei-Inhalt entspricht keinem erlaubten Bildformat");
     err.status = 400;
     throw err;
   }
+  const qualityWarning = checkImageQuality(file.buffer);
+  if (watermark) {
+    const watermarkedBuffer = await applyWatermark(file.buffer);
+    const filename = `${crypto.randomUUID()}.webp`;
+    fs.writeFileSync(path.join(UPLOADS_DIR, filename), watermarkedBuffer);
+    const previewFilename = await generatePreviewImage(watermarkedBuffer);
+    return { filename, previewFilename, mime: "image/webp", qualityWarning };
+  }
   const filename = `${crypto.randomUUID()}.${detected.ext}`;
   fs.writeFileSync(path.join(UPLOADS_DIR, filename), file.buffer);
   const previewFilename = await generatePreviewImage(file.buffer);
-  return { filename, previewFilename, mime: detected.mime, qualityWarning: checkImageQuality(file.buffer) };
+  return { filename, previewFilename, mime: detected.mime, qualityWarning };
+}
+
+// Erzeugt aus einer einzigen hochgeladenen Originaldatei beide Varianten auf
+// einmal: die unangetastete Verkaufsdatei ("Ohne Wasserzeichen") und die
+// automatisch gekachelte öffentliche Ansicht ("Mit Wasserzeichen") - Ersatz
+// für den bisherigen doppelten manuellen Upload.
+async function persistUploadedImagePair(file) {
+  const clean = await persistUploadedImage(file, { watermark: false });
+  const watermarked = await persistUploadedImage(file, { watermark: true });
+  return { clean, watermarked, qualityWarning: clean.qualityWarning };
 }
 
 // Rechnung/Angebot dürfen zusätzlich zu Bildern auch als PDF hochgeladen
@@ -364,7 +417,10 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
 
   try {
     const [mainFile, ...extraFiles] = files;
-    const { filename, previewFilename, qualityWarning } = await persistUploadedImage(mainFile);
+    // Staff lädt nur noch die reine Originaldatei hoch (ohne Wasserzeichen) -
+    // die öffentliche "Mit Wasserzeichen"-Ansicht wird automatisch daraus
+    // erzeugt (persistUploadedImagePair), kein zweiter manueller Export nötig.
+    const mainPair = await persistUploadedImagePair(mainFile);
     const design = db.addDesign({
       id: db.nextId(),
       name,
@@ -375,32 +431,75 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
       kaufLink: kaufLink || "",
       driveLink: driveLink || "",
       instagramLink: instagramLink || "",
-      image: `/uploads/${filename}`,
-      previewImage: previewFilename ? `/uploads/${previewFilename}` : null,
+      image: `/uploads/${mainPair.watermarked.filename}`,
+      previewImage: mainPair.watermarked.previewFilename ? `/uploads/${mainPair.watermarked.previewFilename}` : null,
       online: req.body.online !== undefined,
-      qualityWarning,
+      qualityWarning: mainPair.qualityWarning,
       tags,
       createdAt: new Date().toISOString(),
     });
-    const ext = filename.split(".").pop();
-    sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), design.id, "Mit Wasserzeichen", "Hauptbild", ext);
+    sortedUploads.mirrorSorted(
+      path.join(UPLOADS_DIR, mainPair.watermarked.filename),
+      design.id,
+      "Mit Wasserzeichen",
+      "Hauptbild",
+      mainPair.watermarked.filename.split(".").pop()
+    );
+    db.addDesignImage({
+      design_id: design.id,
+      wasserzeichen: false,
+      typ: "Design",
+      bezeichnung: "Hauptbild",
+      image: `/uploads/${mainPair.clean.filename}`,
+      previewImage: mainPair.clean.previewFilename ? `/uploads/${mainPair.clean.previewFilename}` : null,
+      qualityWarning: mainPair.qualityWarning,
+    });
+    sortedUploads.mirrorSorted(
+      path.join(UPLOADS_DIR, mainPair.clean.filename),
+      design.id,
+      "Ohne Wasserzeichen",
+      "Hauptbild",
+      mainPair.clean.filename.split(".").pop()
+    );
 
-    const qualityWarnings = qualityWarning ? [qualityWarning] : [];
+    const qualityWarnings = mainPair.qualityWarning ? [mainPair.qualityWarning] : [];
     for (const [i, file] of extraFiles.entries()) {
-      const extra = await persistUploadedImage(file);
+      const bezeichnung = `Bild ${i + 2}`;
+      const pair = await persistUploadedImagePair(file);
       db.addDesignImage({
         design_id: design.id,
         wasserzeichen: true,
         typ: "Design",
-        bezeichnung: `Bild ${i + 2}`,
-        image: `/uploads/${extra.filename}`,
-        previewImage: extra.previewFilename ? `/uploads/${extra.previewFilename}` : null,
+        bezeichnung,
+        image: `/uploads/${pair.watermarked.filename}`,
+        previewImage: pair.watermarked.previewFilename ? `/uploads/${pair.watermarked.previewFilename}` : null,
         sichtbar: true,
-        qualityWarning: extra.qualityWarning,
+        qualityWarning: pair.qualityWarning,
       });
-      const extraExt = extra.filename.split(".").pop();
-      sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, extra.filename), design.id, "Mit Wasserzeichen", `Bild ${i + 2}`, extraExt);
-      if (extra.qualityWarning) qualityWarnings.push(extra.qualityWarning);
+      sortedUploads.mirrorSorted(
+        path.join(UPLOADS_DIR, pair.watermarked.filename),
+        design.id,
+        "Mit Wasserzeichen",
+        bezeichnung,
+        pair.watermarked.filename.split(".").pop()
+      );
+      db.addDesignImage({
+        design_id: design.id,
+        wasserzeichen: false,
+        typ: "Design",
+        bezeichnung,
+        image: `/uploads/${pair.clean.filename}`,
+        previewImage: pair.clean.previewFilename ? `/uploads/${pair.clean.previewFilename}` : null,
+        qualityWarning: pair.qualityWarning,
+      });
+      sortedUploads.mirrorSorted(
+        path.join(UPLOADS_DIR, pair.clean.filename),
+        design.id,
+        "Ohne Wasserzeichen",
+        bezeichnung,
+        pair.clean.filename.split(".").pop()
+      );
+      if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
     }
 
     res.status(201).json({ ...design, qualityWarnings });
@@ -500,7 +599,6 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10
   if (!design) return res.status(404).json({ error: "Design nicht gefunden" });
 
   const { bezeichnung, typ } = req.body;
-  const wasserzeichen = req.body.wasserzeichen === "true" || req.body.wasserzeichen === "on";
   if (typ !== undefined && !db.IMAGE_TYP_VALUES.includes(typ)) {
     return res.status(400).json({ error: "Ungültiger Bildtyp" });
   }
@@ -513,23 +611,49 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10
     const images = [];
     const qualityWarnings = [];
     for (const [i, file] of files.entries()) {
-      const { filename, previewFilename, qualityWarning } = await persistUploadedImage(file);
+      // Jede hochgeladene Originaldatei ergibt automatisch beide Varianten
+      // (mit + ohne Wasserzeichen) - kein wasserzeichen-Auswahlfeld mehr nötig.
+      const pair = await persistUploadedImagePair(file);
       // Bei mehreren Dateien auf einmal braucht jede eine eigene, unterscheidbare
       // Bezeichnung, sonst sehen sie sich in der Übersicht/im Dateinamen zum Verwechseln ähnlich.
       const imageBezeichnung = files.length > 1 ? `${bezeichnung || "Bild"} ${i + 1}` : bezeichnung || "";
-      const image = db.addDesignImage({
+
+      const watermarked = db.addDesignImage({
         design_id: req.params.id,
-        wasserzeichen,
+        wasserzeichen: true,
         typ: typ || "Design",
         bezeichnung: imageBezeichnung,
-        image: `/uploads/${filename}`,
-        previewImage: previewFilename ? `/uploads/${previewFilename}` : null,
-        qualityWarning,
+        image: `/uploads/${pair.watermarked.filename}`,
+        previewImage: pair.watermarked.previewFilename ? `/uploads/${pair.watermarked.previewFilename}` : null,
+        qualityWarning: pair.qualityWarning,
       });
-      const ext = filename.split(".").pop();
-      sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), design.id, image.kategorie, imageBezeichnung, ext);
-      images.push(image);
-      if (qualityWarning) qualityWarnings.push(qualityWarning);
+      sortedUploads.mirrorSorted(
+        path.join(UPLOADS_DIR, pair.watermarked.filename),
+        design.id,
+        watermarked.kategorie,
+        imageBezeichnung,
+        pair.watermarked.filename.split(".").pop()
+      );
+
+      const clean = db.addDesignImage({
+        design_id: req.params.id,
+        wasserzeichen: false,
+        typ: typ || "Design",
+        bezeichnung: imageBezeichnung,
+        image: `/uploads/${pair.clean.filename}`,
+        previewImage: pair.clean.previewFilename ? `/uploads/${pair.clean.previewFilename}` : null,
+        qualityWarning: pair.qualityWarning,
+      });
+      sortedUploads.mirrorSorted(
+        path.join(UPLOADS_DIR, pair.clean.filename),
+        design.id,
+        clean.kategorie,
+        imageBezeichnung,
+        pair.clean.filename.split(".").pop()
+      );
+
+      images.push(watermarked, clean);
+      if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
     }
     res.status(201).json({ images, qualityWarnings });
   } catch (err) {
@@ -584,7 +708,14 @@ app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
 app.post("/api/admin/designs/:id/images/:imageId/replace", requireAuth, upload.single("image"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Bild ist Pflichtfeld" });
   try {
-    const { filename, previewFilename, qualityWarning } = await persistUploadedImage(req.file);
+    const existing = db.getDesignImages(req.params.id).find((img) => String(img.id) === req.params.imageId);
+    if (!existing) return res.status(404).json({ error: "Bild nicht gefunden" });
+    // Ersatzdatei ist immer die reine Originaldatei - Wasserzeichen wird nur
+    // erneut aufgelegt, wenn die zu ersetzende Zeile ohnehin die
+    // "Mit Wasserzeichen"-Ansicht war.
+    const { filename, previewFilename, qualityWarning } = await persistUploadedImage(req.file, {
+      watermark: Boolean(existing.wasserzeichen),
+    });
     const result = db.replaceDesignImage(req.params.imageId, {
       image: `/uploads/${filename}`,
       previewImage: previewFilename ? `/uploads/${previewFilename}` : null,

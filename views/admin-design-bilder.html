@@ -33,16 +33,10 @@
           <li>Qualität beim Download: „Beste Qualität" / höchste Stufe wählen</li>
         </ul>
       </div>
-      <label for="image-file">Bilddatei(en)</label>
+      <label for="image-file">Bilddatei(en) – jeweils die reine Originaldatei ohne Wasserzeichen</label>
       <input type="file" id="image-file" name="images" accept="image/png,image/jpeg,image/webp,image/avif" multiple required>
-      <p class="field-hint">Mehrere Dateien möglich – alle bekommen dieselben Eigenschaften, die Bezeichnung wird bei mehreren Dateien automatisch durchnummeriert.</p>
+      <p class="field-hint">Mehrere Dateien möglich – alle bekommen dieselben Eigenschaften, die Bezeichnung wird bei mehreren Dateien automatisch durchnummeriert. Aus jeder Datei werden automatisch beide Varianten erzeugt (mit und ohne Wasserzeichen), kein separater Wasserzeichen-Export mehr nötig.</p>
       <div id="image-file-preview" class="file-preview"></div>
-
-      <label for="image-wasserzeichen">Wasserzeichen</label>
-      <select id="image-wasserzeichen" name="wasserzeichen" required>
-        <option value="true">Mit Wasserzeichen</option>
-        <option value="false">Ohne Wasserzeichen (Verkaufsdatei)</option>
-      </select>
 
       <label for="image-typ">Bildtyp</label>
       <select id="image-typ" name="typ" required>

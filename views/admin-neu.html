@@ -76,12 +76,13 @@
           <li>Größe: 20 × 20 cm bei 300 dpi (≈ 2362 × 2362 Pixel)</li>
           <li>Dateityp: PNG (transparenter Hintergrund) oder JPG</li>
           <li>Qualität beim Download: „Beste Qualität" / höchste Stufe wählen</li>
+          <li>Nur die reine Datei ohne Wasserzeichen exportieren – das Wasserzeichen wird automatisch erzeugt</li>
         </ul>
       </div>
       <div>
-        <label for="image">Bild(er) (PNG, JPG, WEBP, AVIF)</label>
+        <label for="image">Bild(er) ohne Wasserzeichen (PNG, JPG, WEBP, AVIF)</label>
         <input type="file" id="image" name="images" accept="image/png,image/jpeg,image/webp,image/avif" multiple required>
-        <p class="field-hint">Mehrere Dateien möglich – die erste wird das Hauptbild, weitere werden als zusätzliche Bild-Varianten gespeichert (später unter „Bilder" bearbeitbar).</p>
+        <p class="field-hint">Mehrere Dateien möglich – die erste wird das Hauptbild, weitere werden als zusätzliche Bild-Varianten gespeichert (später unter „Bilder" bearbeitbar). Aus jeder Datei werden automatisch beide Varianten erzeugt (mit und ohne Wasserzeichen).</p>
         <div id="image-file-preview" class="file-preview"></div>
       </div>
       <button type="submit">Design hochladen</button>
