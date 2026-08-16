@@ -151,6 +151,27 @@ function render(order) {
   }
 }
 
+// WhatsApp-Kontakt im Footer ist optional (nur wenn eine Nummer hinterlegt
+// ist) - lädt unabhängig von der Bestellung selbst, damit die Kontaktzeile
+// auch bei einem Fehler beim Laden der Bestellung nutzbar bleibt. Bewusst
+// relativ (gleiche Origin wie bestellung.html, server-public.js) statt
+// ADMIN_ORIGIN - das dortige /api/config verlangt Mitarbeiter-Login und wäre
+// für Kundinnen immer ein 401.
+async function loadWhatsappContact() {
+  try {
+    const res = await fetch("/api/config");
+    if (!res.ok) return;
+    const config = await res.json();
+    if (!config.whatsappNumber) return;
+    const link = document.getElementById("order-whatsapp-link");
+    const text = encodeURIComponent(`Hallo! Ich habe eine Frage zu meiner Bestellung: ${window.location.href}`);
+    link.href = `https://wa.me/${config.whatsappNumber}?text=${text}`;
+    link.hidden = false;
+  } catch {
+    // Kontaktzeile bleibt einfach ohne WhatsApp-Link, E-Mail/Instagram reichen als Fallback
+  }
+}
+
 async function load() {
   if (!token) {
     renderError("Kein gültiger Link.");
@@ -170,3 +191,4 @@ async function load() {
 }
 
 load();
+loadWhatsappContact();
