@@ -7,6 +7,7 @@ const emptyState = document.getElementById("empty-state");
 
 const lightbox = document.getElementById("lightbox");
 const lightboxImage = document.getElementById("lightbox-image");
+const lightboxImageCaption = document.getElementById("lightbox-image-caption");
 const lightboxThumbs = document.getElementById("lightbox-thumbs");
 const lightboxVariantSelect = document.getElementById("lightbox-variant-select");
 const lightboxBadge = document.getElementById("lightbox-badge");
@@ -287,13 +288,24 @@ async function loadLightboxThumbs(design) {
     if (currentLightboxDesign !== design || images.length < 2) return;
 
     images.forEach((img, i) => {
-      const thumb = el("button", { type: "button", className: "lightbox-thumb" }, [
+      // Bezeichnung als Bildunterschrift direkt sichtbar, nicht nur versteckt
+      // im Varianten-Dropdown - Kundinnen sollen beim Durchklicken sofort
+      // erkennen, welche Datei/Variante sie gerade ansehen (und später zur
+      // Anfrage auswählen).
+      const label = variantLabel(img, i + 1);
+      const thumb = el("button", { type: "button", className: "lightbox-thumb", title: label }, [
         el("img", { src: img.previewImage || img.image, alt: img.bezeichnung || img.kategorie, loading: "lazy" }),
         el("span", { className: "lightbox-thumb-number", textContent: String(i + 1) }),
       ]);
-      if (img.image === design.image) thumb.classList.add("active");
+      if (img.image === design.image) {
+        thumb.classList.add("active");
+        lightboxImageCaption.textContent = label;
+        lightboxImageCaption.hidden = false;
+      }
       thumb.addEventListener("click", () => {
         lightboxImage.src = img.previewImage || img.image;
+        lightboxImageCaption.textContent = label;
+        lightboxImageCaption.hidden = false;
         [...lightboxThumbs.children].forEach((t) => t.classList.toggle("active", t === thumb));
       });
       lightboxThumbs.appendChild(thumb);
@@ -309,6 +321,8 @@ function openLightbox(design) {
   currentLightboxDesign = design;
   lightboxImage.src = design.previewImage || design.image;
   lightboxImage.alt = design.name;
+  lightboxImageCaption.hidden = true;
+  lightboxImageCaption.textContent = "";
   loadLightboxThumbs(design);
   lightboxId.textContent = design.id;
   lightboxName.textContent = design.name;

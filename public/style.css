@@ -398,6 +398,19 @@ h2 {
   background: var(--border);
 }
 
+/* Zeigt die Bezeichnung des aktuell angezeigten Bilds direkt an, statt sie
+   nur versteckt im Varianten-Dropdown zu haben - damit Kundinnen beim
+   Durchklicken der Thumbnails sofort sehen, welche Datei/Variante das ist. */
+.lightbox-image-caption {
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-alt);
+}
+
 .lightbox-thumbs {
   display: flex;
   gap: 0.5rem;
