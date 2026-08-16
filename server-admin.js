@@ -393,7 +393,7 @@ app.get("/api/admin/designs/next-id", requireAuth, (req, res) => {
   res.json({ id: db.nextId() });
 });
 
-app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (req, res) => {
+app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (req, res) => {
   const { name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink } = req.body;
   const files = req.files || [];
   if (!name || !category || files.length === 0) {
@@ -598,7 +598,7 @@ app.get("/api/admin/designs/:id/images", requireAuth, (req, res) => {
   res.json(db.getDesignImages(req.params.id));
 });
 
-app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 10), async (req, res) => {
+app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 30), async (req, res) => {
   const design = db.getDesign(req.params.id);
   if (!design) return res.status(404).json({ error: "Design nicht gefunden" });
 
@@ -1271,6 +1271,25 @@ app.delete("/api/admin/feedback/:id", requireAuth, (req, res) => {
   const ok = db.deleteFeedback(req.params.id);
   if (!ok) return res.status(404).json({ error: "Nicht gefunden" });
   res.json({ ok: true });
+});
+
+// Zentrale Fehlerbehandlung - ohne diese landet z.B. ein MulterError (falsches
+// Feld, zu viele Dateien, Datei zu groß) im Express-Standard-Handler und
+// erzeugt einen rohen 500er samt Stacktrace statt einer verständlichen Meldung.
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    const messages = {
+      LIMIT_FILE_SIZE: "Datei zu groß (max. 20 MB pro Datei).",
+      LIMIT_FILE_COUNT: "Zu viele Dateien auf einmal ausgewählt.",
+      LIMIT_UNEXPECTED_FILE: "Zu viele Dateien auf einmal ausgewählt (max. 30).",
+    };
+    return res.status(400).json({ error: messages[err.code] || `Upload-Fehler: ${err.message}` });
+  }
+  if (err) {
+    console.error(err);
+    return res.status(400).json({ error: err.message || "Es ist ein Fehler aufgetreten." });
+  }
+  next();
 });
 
 app.listen(PORT, () => {
