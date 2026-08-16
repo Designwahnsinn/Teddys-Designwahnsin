@@ -135,6 +135,8 @@ db.exec(`
     description TEXT,
     category TEXT NOT NULL,
     price REAL,
+    pricePng REAL,
+    priceHintergrund REAL,
     status TEXT NOT NULL,
     kaufLink TEXT,
     driveLink TEXT,
@@ -184,6 +186,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS order_designs (
     order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     design_id TEXT NOT NULL REFERENCES designs(id),
+    preisoptionen TEXT,
     PRIMARY KEY (order_id, design_id)
   );
 
@@ -229,6 +232,18 @@ function ensureColumn(table, column, definition) {
 }
 ensureColumn("designs", "instagramLink", "TEXT");
 ensureColumn("designs", "online", "INTEGER NOT NULL DEFAULT 1");
+// Gestaffelte Preise statt eines einzigen Werts: "price" bleibt der
+// Design-Preis (jetzt Standard 10€ statt vorher optional), dazu die
+// PNG-Dateien (alle Motive einzeln, Standard 6€) und der Hintergrund separat
+// (Standard 5€) - Kundinnen können alle drei Bausteine addierend kombinieren.
+// Bestehende Designs bekommen die neuen Standardwerte nachgezogen, damit
+// nicht plötzlich NULL/0€ für PNG/Hintergrund dasteht.
+if (ensureColumn("designs", "pricePng", "REAL")) {
+  db.prepare("UPDATE designs SET pricePng = 6 WHERE pricePng IS NULL").run();
+}
+if (ensureColumn("designs", "priceHintergrund", "REAL")) {
+  db.prepare("UPDATE designs SET priceHintergrund = 5 WHERE priceHintergrund IS NULL").run();
+}
 ensureColumn("design_images", "qualityWarning", "TEXT");
 // Verkleinertes Web-Vorschaubild (von sharp erzeugt, z.B. WebP) - die
 // öffentliche Seite zeigt bevorzugt dieses statt der oft sehr großen
@@ -245,6 +260,12 @@ ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
 // JSON-Array der nummerierten Labels (z.B. ["1. Design", "3. Motiv 2"]).
 // NULL/kein Eintrag = keine spezifische Variante gewünscht (ganzes Design).
 ensureColumn("order_designs", "varianten", "TEXT");
+// Welche Preisbausteine (design/png/hintergrund) für dieses Design in dieser
+// Bestellung im Angebot enthalten sind - JSON-Array, z.B. ["design","png"].
+// NULL/kein Eintrag = noch nicht konfiguriert, Angebot-Schritt setzt dann
+// standardmäßig nur "design" (entspricht dem alten Verhalten vor Einführung
+// der gestaffelten Preise).
+ensureColumn("order_designs", "preisoptionen", "TEXT");
 // Neuer Schritt "Auf Bezahlung warten" zwischen Rechnung und Download - für
 // Bestellungen, die schon weiter waren als der neue Schritt (schritt_download
 // bereits erledigt), rückwirkend als erledigt markieren, sonst würden sie
@@ -431,14 +452,17 @@ function nextId() {
 
 function addDesign(design) {
   db.prepare(`
-    INSERT INTO designs (id, name, description, category, price, status, kaufLink, driveLink, instagramLink, image, online, verkaufszaehler, createdAt)
-    VALUES (@id, @name, @description, @category, @price, @status, @kaufLink, @driveLink, @instagramLink, @image, @online, 0, @createdAt)
+    INSERT INTO designs (id, name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, image, online, verkaufszaehler, createdAt)
+    VALUES (@id, @name, @description, @category, @price, @pricePng, @priceHintergrund, @status, @kaufLink, @driveLink, @instagramLink, @image, @online, 0, @createdAt)
   `).run({
     id: design.id,
     name: design.name,
     description: design.description || "",
     category: design.category,
-    price: design.price ?? null,
+    // Standardwerte 10€/6€/5€, falls beim Hochladen nichts (anderes) angegeben wurde.
+    price: design.price ?? 10,
+    pricePng: design.pricePng ?? 6,
+    priceHintergrund: design.priceHintergrund ?? 5,
     status: design.status,
     kaufLink: design.kaufLink || "",
     driveLink: design.driveLink || "",
@@ -455,7 +479,7 @@ function addDesign(design) {
   return getDesign(design.id);
 }
 
-const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "status", "kaufLink", "driveLink", "instagramLink", "online"];
+const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "pricePng", "priceHintergrund", "status", "kaufLink", "driveLink", "instagramLink", "online"];
 
 function updateDesign(id, changes) {
   const existing = db.prepare("SELECT * FROM designs WHERE id = ?").get(id);
@@ -679,6 +703,28 @@ const setDesignTags = db.transaction((designId, tagNames) => {
   }
 });
 
+// Legt einen Tag ohne Zuordnung zu einem Design an (z.B. vorab in der
+// Tag-Verwaltung), sonst entstehen Tags sonst nur implizit über setDesignTags.
+function addTag(name) {
+  getOrCreateTagId(name);
+  return getTags();
+}
+
+// Umbenennen wirkt sich automatisch überall aus, wo der Tag verwendet wird -
+// anders als bei Kategorien reicht die eine Zeile in der tags-Tabelle,
+// design_tags verweist nur per tag_id, keine Textkopie zum Nachziehen.
+function renameTag(oldName, newName) {
+  const result = db.prepare("UPDATE tags SET name = ? WHERE name = ?").run(newName, oldName);
+  if (result.changes === 0) return null;
+  return getTags();
+}
+
+function deleteTag(name) {
+  const result = db.prepare("DELETE FROM tags WHERE name = ?").run(name);
+  if (result.changes === 0) return null;
+  return getTags();
+}
+
 // --- Bestellungen ---
 
 function createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz }) {
@@ -703,11 +749,18 @@ function createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp,
 // ausgewählte Varianten-Labels, optional.
 function setOrderDesigns(orderId, designIds, variantenMap = {}) {
   const setDesigns = db.transaction((ids, varianten) => {
+    // preisoptionen wird an anderer Stelle (Angebot-Schritt) gepflegt - beim
+    // Neuzuordnen von Designs hier erhalten bleiben, statt beim
+    // Löschen+Neuanlegen der Zeilen verloren zu gehen.
+    const existingPreisoptionen = new Map(
+      db.prepare("SELECT design_id, preisoptionen FROM order_designs WHERE order_id = ?").all(orderId)
+        .map((r) => [r.design_id, r.preisoptionen])
+    );
     db.prepare("DELETE FROM order_designs WHERE order_id = ?").run(orderId);
-    const insert = db.prepare("INSERT INTO order_designs (order_id, design_id, varianten) VALUES (?, ?, ?)");
+    const insert = db.prepare("INSERT INTO order_designs (order_id, design_id, varianten, preisoptionen) VALUES (?, ?, ?, ?)");
     for (const designId of ids) {
       const selected = Array.isArray(varianten[designId]) ? varianten[designId].filter((v) => typeof v === "string") : [];
-      insert.run(orderId, designId, selected.length > 0 ? JSON.stringify(selected) : null);
+      insert.run(orderId, designId, selected.length > 0 ? JSON.stringify(selected) : null, existingPreisoptionen.get(designId) || null);
     }
     // Wenn der Kunde die Bestellung schon über das Order-Portal bestätigt
     // hatte, macht eine nachträgliche Design-Änderung diese Bestätigung
@@ -721,12 +774,33 @@ function setOrderDesigns(orderId, designIds, variantenMap = {}) {
   return getOrder(orderId);
 }
 
+const PREISOPTIONEN_VALUES = ["design", "png", "hintergrund"];
+
+// Legt fest, welche Preisbausteine für ein Design in dieser Bestellung im
+// Angebot enthalten sind (addierend, siehe berechneterPreis in designsWithVarianten).
+function setOrderDesignPreisoptionen(orderId, designId, optionen) {
+  const valid = Array.isArray(optionen) ? optionen.filter((o) => PREISOPTIONEN_VALUES.includes(o)) : [];
+  const json = valid.length > 0 ? JSON.stringify(valid) : null;
+  const info = db.prepare("UPDATE order_designs SET preisoptionen = ? WHERE order_id = ? AND design_id = ?").run(json, orderId, designId);
+  return info.changes > 0;
+}
+
 function designsWithVarianten(orderId) {
   return db.prepare(`
-    SELECT d.*, od.varianten AS varianten FROM designs d
+    SELECT d.*, od.varianten AS varianten, od.preisoptionen AS preisoptionen FROM designs d
     JOIN order_designs od ON od.design_id = d.id
     WHERE od.order_id = ?
-  `).all(orderId).map((d) => ({ ...d, varianten: d.varianten ? JSON.parse(d.varianten) : [] }));
+  `).all(orderId).map((d) => {
+    // Noch nicht konfiguriert (NULL) = wie vor Einführung der gestaffelten
+    // Preise nur der Design-Preis, kein automatisches Aufschlagen von
+    // PNG/Hintergrund ohne bewusste Auswahl im Angebot-Schritt.
+    const preisoptionen = d.preisoptionen ? JSON.parse(d.preisoptionen) : ["design"];
+    let berechneterPreis = 0;
+    if (preisoptionen.includes("design")) berechneterPreis += d.price || 0;
+    if (preisoptionen.includes("png")) berechneterPreis += d.pricePng || 0;
+    if (preisoptionen.includes("hintergrund")) berechneterPreis += d.priceHintergrund || 0;
+    return { ...d, varianten: d.varianten ? JSON.parse(d.varianten) : [], preisoptionen, berechneterPreis };
+  });
 }
 
 function getOrder(id) {
@@ -934,11 +1008,16 @@ module.exports = {
   renameCategory,
   deleteCategory,
   getTags,
+  addTag,
+  renameTag,
+  deleteTag,
   ORDER_STEPS,
   ORDER_STATUS_VALUES,
   KONTAKT_PRAEFERENZ_VALUES,
   createOrder,
   setOrderDesigns,
+  setOrderDesignPreisoptionen,
+  PREISOPTIONEN_VALUES,
   getOrder,
   getOrderByToken,
   confirmOrderTerms,

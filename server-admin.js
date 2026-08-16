@@ -394,7 +394,7 @@ app.get("/api/admin/designs/next-id", requireAuth, (req, res) => {
 });
 
 app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (req, res) => {
-  const { name, description, category, price, status, kaufLink, driveLink, instagramLink } = req.body;
+  const { name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink } = req.body;
   const files = req.files || [];
   if (!name || !category || files.length === 0) {
     return res.status(400).json({ error: "Name, Kategorie und mindestens ein Bild sind Pflichtfelder" });
@@ -427,6 +427,8 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
       description: description || "",
       category,
       price: price ? Number(price) : null,
+      pricePng: pricePng ? Number(pricePng) : null,
+      priceHintergrund: priceHintergrund ? Number(priceHintergrund) : null,
       status: status || "verfügbar",
       kaufLink: kaufLink || "",
       driveLink: driveLink || "",
@@ -509,7 +511,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 10), async (r
 });
 
 app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
-  const { name, description, category, price, status, kaufLink, driveLink, instagramLink, online, tags } = req.body;
+  const { name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, online, tags } = req.body;
 
   const changes = {};
   if (name !== undefined) {
@@ -524,6 +526,8 @@ app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
     changes.category = category;
   }
   if (price !== undefined) changes.price = price === "" || price === null ? null : Number(price);
+  if (pricePng !== undefined) changes.pricePng = pricePng === "" || pricePng === null ? null : Number(pricePng);
+  if (priceHintergrund !== undefined) changes.priceHintergrund = priceHintergrund === "" || priceHintergrund === null ? null : Number(priceHintergrund);
   if (status !== undefined) {
     if (!STATUS_VALUES.includes(status)) {
       return res.status(400).json({ error: "Ungültiger Status" });
@@ -798,6 +802,38 @@ app.delete("/api/admin/categories/:name", requireAuth, (req, res) => {
   res.json(result);
 });
 
+// --- Tags (frei, kein "in Benutzung"-Schutz wie bei Kategorien - ein Design
+// verliert beim Löschen eines Tags einfach nur dieses eine Tag) ---
+app.post("/api/admin/tags", requireAuth, (req, res) => {
+  const name = (req.body.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Name darf nicht leer sein" });
+  if (db.getTags().includes(name)) {
+    return res.status(400).json({ error: "Tag existiert bereits" });
+  }
+  res.status(201).json(db.addTag(name));
+});
+
+app.patch("/api/admin/tags", requireAuth, (req, res) => {
+  const oldName = (req.body.oldName || "").trim();
+  const newName = (req.body.newName || "").trim();
+  if (!oldName || !newName) {
+    return res.status(400).json({ error: "Alter und neuer Name sind Pflichtfelder" });
+  }
+  if (oldName === newName) return res.json(db.getTags());
+  if (db.getTags().includes(newName)) {
+    return res.status(400).json({ error: "Ein Tag mit diesem Namen existiert bereits" });
+  }
+  const result = db.renameTag(oldName, newName);
+  if (!result) return res.status(404).json({ error: "Tag nicht gefunden" });
+  res.json(result);
+});
+
+app.delete("/api/admin/tags/:name", requireAuth, (req, res) => {
+  const result = db.deleteTag(req.params.name);
+  if (!result) return res.status(404).json({ error: "Tag nicht gefunden" });
+  res.json(result);
+});
+
 // --- Bestellungen (Wizard + Dashboard) ---
 app.get("/api/admin/orders", requireAuth, (req, res) => {
   res.json(db.listOrders(req.query.status));
@@ -837,6 +873,19 @@ app.patch("/api/admin/orders/:id/designs", requireAuth, (req, res) => {
   const varianten = req.body.varianten && typeof req.body.varianten === "object" ? req.body.varianten : {};
   const order = db.setOrderDesigns(Number(req.params.id), designIds, varianten);
   if (!order) return res.status(404).json({ error: "Bestellung nicht gefunden" });
+  res.json(order);
+});
+
+// Welche Preisbausteine (design/png/hintergrund) für ein Design in dieser
+// Bestellung im Angebot addiert werden - siehe Schritt "Angebot/Rechnung erstellen".
+app.patch("/api/admin/orders/:id/designs/:designId/preisoptionen", requireAuth, (req, res) => {
+  const { preisoptionen } = req.body;
+  if (!Array.isArray(preisoptionen) || !preisoptionen.every((p) => db.PREISOPTIONEN_VALUES.includes(p))) {
+    return res.status(400).json({ error: `preisoptionen muss ein Array aus ${db.PREISOPTIONEN_VALUES.join("/")} sein` });
+  }
+  const ok = db.setOrderDesignPreisoptionen(Number(req.params.id), req.params.designId, preisoptionen);
+  if (!ok) return res.status(404).json({ error: "Bestellung oder Design nicht gefunden" });
+  const order = db.getOrder(Number(req.params.id));
   res.json(order);
 });
 
@@ -1040,7 +1089,7 @@ app.get("/api/public/order/:token", publicCors, orderPortalViewLimiter, (req, re
   const designs = order.designs.map((d) => ({
     id: d.id,
     name: d.name,
-    price: d.price,
+    price: d.berechneterPreis,
     previewImage: pickPreviewImage(d.id),
     deliverables: order.download_freigegeben
       ? db.getDesignImages(d.id).filter((img) => !img.wasserzeichen).map((img) => ({ id: img.id, bezeichnung: img.bezeichnung }))
