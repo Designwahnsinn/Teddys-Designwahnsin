@@ -207,15 +207,18 @@ async function generatePreviewImage(buffer) {
 }
 
 // Festes Wasserzeichen-Bild (Maskottchen + Schriftzug, transparenter
-// Hintergrund) - wird als Kachel-Muster über die Web-Ansicht gelegt. Ein
+// Hintergrund) - wird einmal, zentriert, über die Web-Ansicht gelegt. Ein
 // einziges Asset für alle Designs, kein manueller Wasserzeichen-Export in
-// Canva mehr nötig.
+// Canva mehr nötig. Erst als Kachel-Muster über das ganze Bild versucht,
+// aber bei detailreichen Designs war das Motiv darunter kaum noch zu
+// erkennen - deshalb nur eine Platzierung statt eines Rasters.
 const WATERMARK_PATH = path.join(__dirname, "assets", "watermark.png");
-const WATERMARK_TILE_RATIO = 0.22; // Kachel-Kantenlänge relativ zur kürzeren Bildseite
+const WATERMARK_SIZE_RATIO = 0.5; // Kantenlänge relativ zur kürzeren Bildseite
 
 async function applyWatermark(buffer) {
-  // Erst auf Web-Größe verkleinern, dann kacheln - die "Mit Wasserzeichen"-
-  // Ansicht ist nie die Verkaufsdatei und braucht keine Druckauflösung.
+  // Erst auf Web-Größe verkleinern, dann Wasserzeichen auflegen - die
+  // "Mit Wasserzeichen"-Ansicht ist nie die Verkaufsdatei und braucht keine
+  // Druckauflösung.
   const resized = await sharp(buffer)
     .resize({
       width: WEB_PREVIEW_MAX_DIMENSION_PX,
@@ -225,18 +228,10 @@ async function applyWatermark(buffer) {
     })
     .toBuffer();
   const { width, height } = await sharp(resized).metadata();
-  const tileSize = Math.max(1, Math.round(Math.min(width, height) * WATERMARK_TILE_RATIO));
-  const tile = await sharp(WATERMARK_PATH).resize(tileSize, tileSize).toBuffer();
+  const markSize = Math.max(1, Math.round(Math.min(width, height) * WATERMARK_SIZE_RATIO));
+  const mark = await sharp(WATERMARK_PATH).resize(markSize, markSize, { fit: "inside" }).toBuffer();
 
-  // Kachelraster beginnt einen halben Kachel-Versatz vor dem Rand, damit auch
-  // die Bildränder ein (Teil-)Wasserzeichen abbekommen statt frei zu bleiben.
-  const composites = [];
-  for (let y = -tileSize / 2; y < height; y += tileSize) {
-    for (let x = -tileSize / 2; x < width; x += tileSize) {
-      composites.push({ input: tile, left: Math.round(x), top: Math.round(y) });
-    }
-  }
-  return sharp(resized).composite(composites).webp({ quality: WEB_PREVIEW_QUALITY }).toBuffer();
+  return sharp(resized).composite([{ input: mark, gravity: "center" }]).webp({ quality: WEB_PREVIEW_QUALITY }).toBuffer();
 }
 
 // watermark:true erzeugt automatisch die gekachelte "Mit Wasserzeichen"-

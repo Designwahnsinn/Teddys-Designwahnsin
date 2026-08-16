@@ -142,31 +142,45 @@ fileInput.addEventListener("change", () => {
   });
 });
 
+const uploadSubmitBtn = uploadForm.querySelector('button[type="submit"]');
+
 uploadForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   uploadMessage.textContent = "";
   uploadMessage.className = "";
 
-  const formData = new FormData(uploadForm);
-  const res = await fetch(`/api/admin/designs/${designId}/images`, { method: "POST", body: formData });
+  // Verhindert doppeltes Anlegen derselben Variante bei einem zweiten Klick,
+  // während der erste Upload (jetzt mit automatischer Wasserzeichen-Erzeugung
+  // spürbar langsamer) noch läuft.
+  if (uploadSubmitBtn.disabled) return;
+  uploadSubmitBtn.disabled = true;
+  uploadSubmitBtn.textContent = "Lädt hoch …";
 
-  if (res.ok) {
-    const data = await res.json();
-    uploadForm.reset();
-    filePreview.innerHTML = "";
-    const count = data.images.length;
-    if (data.qualityWarnings.length > 0) {
-      uploadMessage.textContent = `${count} Bild${count === 1 ? "" : "er"} hochgeladen. ⚠️ ${data.qualityWarnings.join(" | ")}`;
-      uploadMessage.className = "warning";
+  try {
+    const formData = new FormData(uploadForm);
+    const res = await fetch(`/api/admin/designs/${designId}/images`, { method: "POST", body: formData });
+
+    if (res.ok) {
+      const data = await res.json();
+      uploadForm.reset();
+      filePreview.innerHTML = "";
+      const count = data.images.length;
+      if (data.qualityWarnings.length > 0) {
+        uploadMessage.textContent = `${count} Bild${count === 1 ? "" : "er"} hochgeladen. ⚠️ ${data.qualityWarnings.join(" | ")}`;
+        uploadMessage.className = "warning";
+      } else {
+        uploadMessage.textContent = `${count} Bild${count === 1 ? "" : "er"} hochgeladen.`;
+        uploadMessage.className = "success";
+      }
+      loadImages();
     } else {
-      uploadMessage.textContent = `${count} Bild${count === 1 ? "" : "er"} hochgeladen.`;
-      uploadMessage.className = "success";
+      const data = await res.json().catch(() => ({}));
+      uploadMessage.textContent = data.error || "Fehler beim Hochladen.";
+      uploadMessage.className = "error";
     }
-    loadImages();
-  } else {
-    const data = await res.json().catch(() => ({}));
-    uploadMessage.textContent = data.error || "Fehler beim Hochladen.";
-    uploadMessage.className = "error";
+  } finally {
+    uploadSubmitBtn.disabled = false;
+    uploadSubmitBtn.textContent = "Hochladen";
   }
 });
 

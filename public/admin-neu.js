@@ -107,28 +107,47 @@ imageInput.addEventListener("change", () => {
   });
 });
 
+const submitBtn = form.querySelector('button[type="submit"]');
+
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   message.textContent = "";
   message.className = "";
 
-  const formData = new FormData(form);
-  const res = await fetch("/api/admin/designs", { method: "POST", body: formData });
+  // Ohne diese Sperre konnte ein zweiter Klick (z.B. weil der Upload durch
+  // die automatische Wasserzeichen-Erzeugung spürbar länger dauert und man
+  // denkt, der erste Klick hätte nicht funktioniert) dasselbe Design doppelt
+  // anlegen - jeder Klick landet als eigener POST-Request mit eigener ID.
+  if (submitBtn.disabled) return;
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Lädt hoch …";
 
-  if (res.ok) {
-    const data = await res.json();
-    if (data.qualityWarnings && data.qualityWarnings.length > 0) {
-      message.textContent = `Design hochgeladen. ⚠️ ${data.qualityWarnings.join(" | ")} Weiter zur Bilder-Zuordnung …`;
-      message.className = "warning";
+  try {
+    const formData = new FormData(form);
+    const res = await fetch("/api/admin/designs", { method: "POST", body: formData });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.qualityWarnings && data.qualityWarnings.length > 0) {
+        message.textContent = `Design hochgeladen. ⚠️ ${data.qualityWarnings.join(" | ")} Weiter zur Bilder-Zuordnung …`;
+        message.className = "warning";
+      } else {
+        message.textContent = "Design hochgeladen. Weiter zur Bilder-Zuordnung …";
+        message.className = "success";
+      }
+      window.location.href = `/mitarbeiter/designs/bilder?id=${data.id}`;
     } else {
-      message.textContent = "Design hochgeladen. Weiter zur Bilder-Zuordnung …";
-      message.className = "success";
+      const data = await res.json().catch(() => ({}));
+      message.textContent = data.error || "Fehler beim Hochladen.";
+      message.className = "error";
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Design hochladen";
     }
-    window.location.href = `/mitarbeiter/designs/bilder?id=${data.id}`;
-  } else {
-    const data = await res.json().catch(() => ({}));
-    message.textContent = data.error || "Fehler beim Hochladen.";
+  } catch {
+    message.textContent = "Verbindungsfehler. Bitte später erneut versuchen.";
     message.className = "error";
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Design hochladen";
   }
 });
 
