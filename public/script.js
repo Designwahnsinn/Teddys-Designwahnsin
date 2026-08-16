@@ -14,6 +14,7 @@ const lightboxId = document.getElementById("lightbox-id");
 const lightboxName = document.getElementById("lightbox-name");
 const lightboxDescription = document.getElementById("lightbox-description");
 const lightboxPrice = document.getElementById("lightbox-price");
+const lightboxPriceTable = document.getElementById("lightbox-price-table");
 const lightboxWhatsapp = document.getElementById("lightbox-whatsapp");
 const lightboxBuy = document.getElementById("lightbox-buy");
 const lightboxInstagram = document.getElementById("lightbox-instagram");
@@ -90,6 +91,32 @@ function el(tag, props, children) {
 
 function formatPrice(price) {
   return price != null ? `${Number(price).toFixed(2)} €` : "";
+}
+
+// Zeigt die Preisbausteine nur, wenn es tatsächlich mehr als nur den
+// Design-Preis gibt (ältere/einfache Designs ohne PNG-/Hintergrund-Preis
+// zeigen sonst unnötig eine Ein-Zeilen-"Tabelle"). Bausteine sind addierbar
+// wählbar - die genaue Auswahl bespricht die Kundin dann in der Anfrage.
+function renderLightboxPriceTable(design) {
+  lightboxPriceTable.innerHTML = "";
+  const rows = [
+    ["Design", design.price],
+    ["PNG-Dateien (alle Motive)", design.pricePng],
+    ["Hintergrund", design.priceHintergrund],
+  ].filter(([, p]) => p != null);
+  if (rows.length <= 1) return;
+
+  lightboxPriceTable.appendChild(
+    el("div", { className: "price-table" }, [
+      el("p", { className: "price-table-hint", textContent: "Einzeln oder kombinierbar (addiert sich):" }),
+      ...rows.map(([label, p]) =>
+        el("div", { className: "price-table-row" }, [
+          el("span", { textContent: label }),
+          el("span", { textContent: formatPrice(p) }),
+        ])
+      ),
+    ])
+  );
 }
 
 function visibleDesigns() {
@@ -287,6 +314,7 @@ function openLightbox(design) {
   lightboxName.textContent = design.name;
   lightboxDescription.textContent = design.description || "";
   lightboxPrice.textContent = formatPrice(design.price);
+  renderLightboxPriceTable(design);
 
   lightboxBadge.hidden = design.status !== "exklusiv";
   lightboxBadge.textContent = "Exklusiv – nur einmal erhältlich";

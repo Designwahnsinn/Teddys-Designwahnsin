@@ -36,9 +36,18 @@
         <textarea id="description" name="description" rows="2"></textarea>
       </div>
       <div>
-        <label for="price">Preis (€)</label>
-        <input type="number" id="price" name="price" step="0.01" min="0">
+        <label for="price">Preis Design (€)</label>
+        <input type="number" id="price" name="price" step="0.01" min="0" value="10">
       </div>
+      <div>
+        <label for="pricePng">Preis PNG-Dateien, alle Motive (€)</label>
+        <input type="number" id="pricePng" name="pricePng" step="0.01" min="0" value="6">
+      </div>
+      <div>
+        <label for="priceHintergrund">Preis Hintergrund (€)</label>
+        <input type="number" id="priceHintergrund" name="priceHintergrund" step="0.01" min="0" value="5">
+      </div>
+      <p class="field-hint">Die drei Preise sind für Kundinnen addierbar wählbar (z.B. Design + PNGs + Hintergrund = alle drei zusammen).</p>
       <div>
         <label for="status">Status</label>
         <select id="status" name="status">

@@ -162,6 +162,8 @@ function renderCardEdit(d, body) {
   });
   const descInput = el("textarea", { rows: 2, value: d.description || "" });
   const priceInput = el("input", { type: "number", step: "0.01", min: "0", value: d.price != null ? d.price : "" });
+  const pricePngInput = el("input", { type: "number", step: "0.01", min: "0", value: d.pricePng != null ? d.pricePng : "" });
+  const priceHintergrundInput = el("input", { type: "number", step: "0.01", min: "0", value: d.priceHintergrund != null ? d.priceHintergrund : "" });
   const linkInput = el("input", { type: "url", value: d.kaufLink || "", placeholder: "https://…" });
   const instagramInput = el("input", { type: "url", value: d.instagramLink || "", placeholder: "https://instagram.com/p/…" });
   const driveInput = el("input", { type: "url", value: d.driveLink || "", placeholder: "https://drive.google.com/…" });
@@ -179,6 +181,8 @@ function renderCardEdit(d, body) {
         category: catSelect.value,
         description: descInput.value.trim(),
         price: priceInput.value,
+        pricePng: pricePngInput.value,
+        priceHintergrund: priceHintergrundInput.value,
         kaufLink: linkInput.value.trim(),
         instagramLink: instagramInput.value.trim(),
         driveLink: driveInput.value.trim(),
@@ -227,7 +231,9 @@ function renderCardEdit(d, body) {
     el("label", { textContent: "Name" }), nameInput,
     el("label", { textContent: "Kategorie" }), catSelect,
     el("label", { textContent: "Beschreibung" }), descInput,
-    el("label", { textContent: "Preis (€)" }), priceInput,
+    el("label", { textContent: "Preis Design (€)" }), priceInput,
+    el("label", { textContent: "Preis PNG-Dateien, alle Motive (€)" }), pricePngInput,
+    el("label", { textContent: "Preis Hintergrund (€)" }), priceHintergrundInput,
     el("label", { textContent: "Kauf-Link" }), linkInput,
     el("label", { textContent: "Instagram-Link" }), instagramInput,
     el("label", { textContent: "Google-Drive-Link (intern)" }), driveInput,

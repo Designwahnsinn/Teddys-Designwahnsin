@@ -369,7 +369,54 @@ async function callStep(order, stepKey) {
 }
 
 function totalPrice(order) {
-  return order.designs.reduce((sum, d) => sum + (d.price || 0), 0);
+  return order.designs.reduce((sum, d) => sum + (d.berechneterPreis ?? d.price ?? 0), 0);
+}
+
+const PREISOPTIONEN = [
+  { key: "design", label: (d) => `Design (${formatPrice(d.price)})` },
+  { key: "png", label: (d) => `PNG-Dateien, alle Motive (${formatPrice(d.pricePng)})` },
+  { key: "hintergrund", label: (d) => `Hintergrund (${formatPrice(d.priceHintergrund)})` },
+];
+
+// Pro zugeordnetem Design ankreuzbar, welche Preisbausteine ins Angebot
+// einfließen (addierend) - Gesamtsumme rechts aktualisiert sich live bei
+// jedem Klick, ohne die Seite neu zu laden.
+function renderPreisoptionenBlock(order, totalEl) {
+  const listEl = el("div", { className: "wizard-design-list" });
+
+  order.designs.forEach((d) => {
+    const selected = new Set(d.preisoptionen && d.preisoptionen.length > 0 ? d.preisoptionen : ["design"]);
+
+    const optionLabels = PREISOPTIONEN.map((opt) => {
+      const checkbox = el("input", { type: "checkbox", checked: selected.has(opt.key) });
+      checkbox.addEventListener("change", async () => {
+        if (checkbox.checked) selected.add(opt.key);
+        else selected.delete(opt.key);
+        const res = await fetch(`/api/admin/orders/${order.id}/designs/${d.id}/preisoptionen`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preisoptionen: [...selected] }),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          order.designs = updated.designs;
+          totalEl.textContent = `Gesamtsumme: ${formatPrice(totalPrice(order))}`;
+        } else {
+          checkbox.checked = !checkbox.checked;
+        }
+      });
+      return el("label", { className: "variant-dropdown-option" }, [checkbox, document.createTextNode(` ${opt.label(d)}`)]);
+    });
+
+    listEl.appendChild(
+      el("div", { className: "wizard-design-item" }, [
+        el("span", { textContent: `${d.id} · ${d.name}` }),
+        el("div", { className: "wizard-design-variant-row" }, optionLabels),
+      ])
+    );
+  });
+
+  return listEl;
 }
 
 const PUBLIC_ORIGIN = "https://designwahnsinn-teddy.de";
@@ -458,11 +505,13 @@ function renderStepAction(order, stepKey) {
     renderForOrder(data);
   };
   if (stepKey === "schritt_rechnung") {
+    const totalEl = el("p", { className: "wizard-total", textContent: `Gesamtsumme: ${formatPrice(totalPrice(order))}` });
     panelEl.append(
       el("h2", { textContent: "Schritt 3 · Angebot/Rechnung erstellen" }),
       el("p", { textContent: `Kunde: ${order.kunde_name} (${order.kunde_email})` }),
-      el("ul", {}, order.designs.map((d) => el("li", { textContent: `${d.id} · ${d.name} · ${formatPrice(d.price)}` }))),
-      el("p", { textContent: `Gesamtsumme: ${formatPrice(totalPrice(order))}` }),
+      el("p", { className: "wizard-hint", textContent: "Welche Preisbausteine soll die Kundin bekommen? Mehrfachauswahl möglich, addiert sich zur Gesamtsumme." }),
+      renderPreisoptionenBlock(order, totalEl),
+      totalEl,
       el("p", { className: "wizard-hint", textContent: "Rechnung mit diesen Eckdaten manuell in sevdesk anlegen." }),
       renderFileUploadBlock(order, { field: "angebot_datei", label: "Angebot (optional)", route: "angebot" }),
       renderFileUploadBlock(order, { field: "rechnung_datei", label: "Rechnung", route: "rechnung" }),
