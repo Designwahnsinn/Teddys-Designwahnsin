@@ -3,12 +3,14 @@ const rowsEl = document.getElementById("kundenlinks-rows");
 const emptyEl = document.getElementById("kundenlinks-empty");
 
 const PUBLIC_ORIGIN = "https://designwahnsinn-teddy.de";
-const FILTERS = ["Aktive", "Alle"];
-// Bei "Erledigt"/"Storniert" braucht niemand mehr den Kundenlink - die Gültigkeit
-// spielt dann keine Rolle mehr, "Aktive" blendet sie deshalb standardmäßig aus.
+const FILTERS = ["Alle", "Aktive"];
+// Auch bei "Erledigt"/"Storniert" kann der Link noch gebraucht werden (z.B.
+// falls eine Kundin nachträglich nochmal nachfragt) - "Alle" ist deshalb die
+// Standardansicht, "Aktive" bleibt als Filter für den schnellen Überblick
+// über die noch offenen Fälle erhalten.
 const INACTIVE_STATUS = ["Erledigt", "Storniert"];
 
-let activeFilter = "Aktive";
+let activeFilter = "Alle";
 let allOrders = [];
 let validityDays = 90;
 
