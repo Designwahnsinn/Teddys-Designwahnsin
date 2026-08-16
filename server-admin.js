@@ -369,6 +369,10 @@ app.get("/mitarbeiter/nas", requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, "views", "admin-nas.html"));
 });
 
+app.get("/mitarbeiter/kundenlinks", requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, "views", "admin-kundenlinks.html"));
+});
+
 // Wird von admin-designs.js / admin-neu.js / admin-kategorien.js für die
 // Kategorien-Auswahl gebraucht (gleiche Form wie beim öffentlichen /api/config)
 app.get("/api/config", requireAuth, (req, res) => {
@@ -380,6 +384,7 @@ app.get("/api/config", requireAuth, (req, res) => {
     whatsappNumber: WHATSAPP_NUMBER,
     siteLive,
     previewUrl: !siteLive && previewSecret ? `${PUBLIC_ORIGINS[0]}/?preview=${previewSecret}` : null,
+    orderTokenValidityDays: db.ORDER_TOKEN_VALIDITY_DAYS,
   });
 });
 

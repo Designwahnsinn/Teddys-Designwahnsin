@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kunden-Links – Teddys Designwahnsinn</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <main>
+    <div class="admin-header">
+      <div>
+        <a class="admin-nav-link" href="/mitarbeiter/upload">← Dashboard</a>
+        <h1>Kunden-Links</h1>
+      </div>
+      <div class="admin-header-actions">
+        <form class="logout-form" action="/mitarbeiter/logout" method="POST">
+          <button type="submit">Abmelden</button>
+        </form>
+      </div>
+    </div>
+    <p class="wizard-hint">Bestätigungslinks aller Bestellungen und wie lange sie noch gültig sind (Kundin kann darüber die Bestellung bestätigen und, nach Freigabe, die Datei(en) herunterladen).</p>
+
+    <div class="order-filters" id="kundenlinks-filters"></div>
+    <div class="order-table-wrap">
+      <table class="order-table">
+        <thead>
+          <tr>
+            <th>Kunde</th>
+            <th>Bestellstatus</th>
+            <th>Bestätigt</th>
+            <th>Gültig bis</th>
+            <th>Link-Status</th>
+            <th>Link</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="kundenlinks-rows"></tbody>
+      </table>
+      <p id="kundenlinks-empty" class="order-empty" hidden>Keine Bestellungen in dieser Ansicht.</p>
+    </div>
+  </main>
+
+  <script src="/admin-kundenlinks.js"></script>
+</body>
+</html>

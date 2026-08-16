@@ -522,6 +522,19 @@
 .confirm-badge.confirm-yes { background: #dff5e3; color: #2d7a4f; }
 .confirm-badge.confirm-no { background: #f0f0f0; color: var(--muted); }
 
+.link-status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.link-status-gueltig { background: #dff5e3; color: #2d7a4f; }
+.link-status-laeuft-ab { background: #fff2d8; color: #a6660b; }
+.link-status-abgelaufen { background: #f4d6d6; color: #a12b2b; }
+.kundenlinks-copy-btn { font-size: 0.8rem; }
+
 /* Bestellungen: Wizard */
 .wizard-progress {
   display: flex;
