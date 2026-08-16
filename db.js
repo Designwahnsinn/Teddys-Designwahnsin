@@ -328,15 +328,18 @@ for (const row of db.prepare("SELECT id FROM orders WHERE access_token IS NULL")
 }
 
 // Einmalige Migration: bestehende Klartext-Kundendaten (von vor Einführung
-// der Feldverschlüsselung) verschlüsseln. looksEncrypted() am Namen-Feld
-// erkennt bereits migrierte Zeilen, damit das bei jedem Serverstart nicht
-// erneut über alle Bestellungen läuft.
+// der Feldverschlüsselung) verschlüsseln. looksEncrypted() PRO FELD (nicht
+// pauschal am Namen-Feld) erkennt bereits migrierte Werte - eine frühere
+// Version prüfte das nur an kunde_name und verschlüsselte dann alle 6 Felder
+// pauschal mit, was bei Zeilen mit uneinheitlichem Stand (z.B. kunde_name
+// noch Klartext, kunde_instagram aber schon verschlüsselt) zur versehentlichen
+// Doppel-Verschlüsselung einzelner Felder führte (siehe repairDoubleEncryptedOrderFields()).
 function migrateEncryptOrderFields() {
   const rows = db.prepare(`
     SELECT id, kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, notiz, terms_confirmed_ip
     FROM orders
   `).all();
-  const toMigrate = rows.filter((row) => !looksEncrypted(row.kunde_name));
+  const toMigrate = rows.filter((row) => ORDER_PII_FIELDS.some((field) => !looksEncrypted(row[field])));
   if (toMigrate.length === 0) return;
   const update = db.prepare(`
     UPDATE orders SET kunde_name = ?, kunde_email = ?, kunde_instagram = ?, kunde_whatsapp = ?, notiz = ?, terms_confirmed_ip = ?
@@ -345,12 +348,12 @@ function migrateEncryptOrderFields() {
   const migrate = db.transaction((rows) => {
     for (const row of rows) {
       update.run(
-        encryptField(row.kunde_name),
-        encryptField(row.kunde_email),
-        encryptField(row.kunde_instagram),
-        encryptField(row.kunde_whatsapp),
-        encryptField(row.notiz),
-        encryptField(row.terms_confirmed_ip),
+        looksEncrypted(row.kunde_name) ? row.kunde_name : encryptField(row.kunde_name),
+        looksEncrypted(row.kunde_email) ? row.kunde_email : encryptField(row.kunde_email),
+        looksEncrypted(row.kunde_instagram) ? row.kunde_instagram : encryptField(row.kunde_instagram),
+        looksEncrypted(row.kunde_whatsapp) ? row.kunde_whatsapp : encryptField(row.kunde_whatsapp),
+        looksEncrypted(row.notiz) ? row.notiz : encryptField(row.notiz),
+        looksEncrypted(row.terms_confirmed_ip) ? row.terms_confirmed_ip : encryptField(row.terms_confirmed_ip),
         row.id
       );
     }
@@ -358,6 +361,46 @@ function migrateEncryptOrderFields() {
   migrate(toMigrate);
 }
 migrateEncryptOrderFields();
+
+// Einmalige Reparatur: einzelne PII-Felder, die durch die frühere, an
+// kunde_name gekoppelte Migration versehentlich doppelt verschlüsselt wurden,
+// bekommen eine Verschlüsselungsschicht entfernt. looksEncrypted() nach dem
+// Entschlüsseln erkennt zuverlässig eine verbleibende äußere Schicht - ein
+// echter Klartext (Name, Handynummer, Instagram-Handle) trifft das enge
+// "base64:base64:base64"-Format praktisch nie zufällig.
+function repairDoubleEncryptedOrderFields() {
+  const rows = db.prepare(`
+    SELECT id, kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, notiz, terms_confirmed_ip
+    FROM orders
+  `).all();
+  const update = db.prepare(`
+    UPDATE orders SET kunde_name = ?, kunde_email = ?, kunde_instagram = ?, kunde_whatsapp = ?, notiz = ?, terms_confirmed_ip = ?
+    WHERE id = ?
+  `);
+  const repair = db.transaction((rows) => {
+    for (const row of rows) {
+      let changed = false;
+      const fixed = {};
+      for (const field of ORDER_PII_FIELDS) {
+        let value = row[field];
+        // Mehrschichtig doppelt-verschlüsselte Werte (sollte es eigentlich
+        // nicht geben, aber sicherheitshalber mit Obergrenze statt Endlosschleife).
+        for (let i = 0; i < 5 && looksEncrypted(value); i++) {
+          const once = decryptField(value);
+          if (once === null || !looksEncrypted(once)) break;
+          value = once;
+          changed = true;
+        }
+        fixed[field] = value;
+      }
+      if (changed) {
+        update.run(fixed.kunde_name, fixed.kunde_email, fixed.kunde_instagram, fixed.kunde_whatsapp, fixed.notiz, fixed.terms_confirmed_ip, row.id);
+      }
+    }
+  });
+  repair(rows);
+}
+repairDoubleEncryptedOrderFields();
 
 migrateFromLegacyJson();
 backfillDesignImages();
