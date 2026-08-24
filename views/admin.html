@@ -66,6 +66,12 @@
       <h2>📝 Feedback &amp; offene Punkte</h2>
       <p class="wizard-hint">Kurz notieren, was noch geändert/verbessert werden soll – später mit Claude Code besprechen und abhaken.</p>
       <form id="feedback-form" class="feedback-form">
+        <select id="feedback-art">
+          <option value="Umständlich">Umständlich</option>
+          <option value="Fehler">Fehler</option>
+          <option value="Fehlt">Fehlt</option>
+          <option value="Idee">Idee</option>
+        </select>
         <textarea id="feedback-text" rows="2" placeholder="z. B. Bilder-Vorschau bei Design hochladen ergänzen" required></textarea>
         <button type="submit">Hinzufügen</button>
       </form>
@@ -74,5 +80,6 @@
   </main>
 
   <script src="/admin-dashboard.js"></script>
+  <script src="/feedback-widget.js"></script>
 </body>
 </html>

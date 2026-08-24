@@ -43,7 +43,8 @@ function buildTagInput(existingTags, availableTags) {
   }
 
   function addTag(name) {
-    const trimmed = name.trim();
+    // Kleinschreibung passend zur Schreibkonvention (Ausbau 1.6/1.8).
+    const trimmed = name.trim().toLowerCase();
     if (!trimmed || selected.includes(trimmed)) return;
     selected.push(trimmed);
     renderChips();
@@ -358,10 +359,16 @@ categoryFilterEl.addEventListener("change", renderDesigns);
 onlineFilterEl.addEventListener("change", renderDesigns);
 sortEl.addEventListener("change", renderDesigns);
 
+// "Unsortiert" ist der bewusste Ausweg, wenn nichts passt (Ausbau 1.8/K5) -
+// steht deshalb immer als letzter Eintrag der Liste, nie als Vorauswahl.
+function sortCategoriesUnsortiertLast(cats) {
+  return [...cats].sort((a, b) => (a === "Unsortiert") - (b === "Unsortiert"));
+}
+
 async function init() {
   const res = await fetch("/api/config");
   const config = await res.json();
-  categories = config.categories;
+  categories = sortCategoriesUnsortiertLast(config.categories);
   allTags = config.tags || [];
 
   categoryFilterEl.appendChild(el("option", { value: "alle", textContent: "Alle Kategorien" }));

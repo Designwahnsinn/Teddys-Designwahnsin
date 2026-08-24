@@ -263,6 +263,12 @@ if (ensureColumn("design_images", "sortOrder", "INTEGER")) {
 ensureColumn("orders", "kunde_instagram", "TEXT");
 ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
+// Testkonzept Test A: Art des Eintrags (Fehler/Umständlich/Fehlt/Idee) und
+// automatisch mitgeschickter Kontext (Seite + ggf. Design-ID), von wo der
+// Eintrag kam - macht aus "Hochladen ist umständlich" ein "aus der
+// Bilderverwaltung von TD-0042" statt einer bloßen Ahnung bei der Auswertung.
+ensureColumn("feedback", "art", "TEXT");
+ensureColumn("feedback", "kontext", "TEXT");
 // Von der Kundin (öffentliche Anfrage) oder Mitarbeitenden (Bestellung
 // neu/bearbeiten) pro zugeordnetem Design ausgewählte Bild-Varianten, als
 // JSON-Array der nummerierten Labels (z.B. ["1. Design", "3. Motiv 2"]).
@@ -403,6 +409,17 @@ function repairDoubleEncryptedOrderFields() {
 repairDoubleEncryptedOrderFields();
 
 migrateFromLegacyJson();
+normalizeExistingTags();
+
+// K5 (Ausbau-Dokument): "Unsortiert" muss als Ausweg existieren, BEVOR die
+// Kategorie im Formular zur reinen Auswahlliste ohne Freitext wird (Ausbau
+// 1.6) - sonst blockiert die Liste genau den Fall, für den sie gedacht ist.
+// Einmalig nachziehen, unabhängig davon ob die Kategorien gerade frisch
+// geseedet wurden (s.o.) oder schon länger bestehen.
+if (!db.prepare("SELECT 1 FROM categories WHERE name = ?").get("Unsortiert")) {
+  db.prepare("INSERT INTO categories (name) VALUES (?)").run("Unsortiert");
+}
+
 backfillDesignImages();
 
 // Jedes Design ohne design_images-Einträge (z.B. alle vor Einführung der
@@ -690,12 +707,19 @@ function deleteDesignImage(imageId) {
 
 // --- Feedback-Notizen (Dashboard) ---
 
+// Testkonzept Test A: entscheidend für die Auswertung nach dem Testlauf -
+// Fehler gehören sofort behoben, Umständliches wandert in Schritt 8 des
+// Upload-Plans, Fehlendes ins Ausbau-Dokument.
+const FEEDBACK_ART_VALUES = ["Fehler", "Umständlich", "Fehlt", "Idee"];
+
 function listFeedback() {
   return db.prepare("SELECT * FROM feedback ORDER BY (status = 'offen') DESC, rowid DESC").all();
 }
 
-function addFeedback(text) {
-  const info = db.prepare("INSERT INTO feedback (text, status, createdAt) VALUES (?, 'offen', ?)").run(text, new Date().toISOString());
+function addFeedback({ text, art, kontext }) {
+  const info = db
+    .prepare("INSERT INTO feedback (text, art, kontext, status, createdAt) VALUES (?, ?, ?, 'offen', ?)")
+    .run(text, art || null, kontext || null, new Date().toISOString());
   return db.prepare("SELECT * FROM feedback WHERE id = ?").get(info.lastInsertRowid);
 }
 
@@ -746,10 +770,57 @@ function getTags() {
   return db.prepare("SELECT name FROM tags ORDER BY name COLLATE NOCASE ASC").all().map((r) => r.name);
 }
 
+// Schreibkonvention aus Ausbau 1.6/1.8 (Phase 0): durchgehend Kleinschreibung,
+// Leerzeichen am Rand entfernt - ohne das entstehen Dubletten wie "Blume"
+// und "blume", die später mühsam von Hand zusammenzuführen sind.
+function normalizeTagName(name) {
+  return String(name).trim().toLowerCase();
+}
+
 function getOrCreateTagId(name) {
-  const existing = db.prepare("SELECT id FROM tags WHERE name = ?").get(name);
+  const normalized = normalizeTagName(name);
+  const existing = db.prepare("SELECT id FROM tags WHERE name = ?").get(normalized);
   if (existing) return existing.id;
-  return db.prepare("INSERT INTO tags (name) VALUES (?)").run(name).lastInsertRowid;
+  return db.prepare("INSERT INTO tags (name) VALUES (?)").run(normalized).lastInsertRowid;
+}
+
+// Einmalige Migration für Tags aus der Zeit vor der Schreibkonvention
+// (Kleinschreibung, Phase 0). Kollidieren dabei zwei Tags auf denselben
+// normalisierten Namen (z.B. "Blume" und "blume"), werden sie zusammengeführt:
+// alle design_tags-Zuordnungen wandern zum zuerst angelegten Tag, der jüngere
+// wird entfernt. Danach ein No-Op bei jedem weiteren Start.
+// Als function-Deklaration (statt const = db.transaction(...)) definiert,
+// damit der Aufruf weiter oben beim Modul-Start unabhängig von der
+// Reihenfolge im Datei-Quelltext funktioniert (function-Deklarationen werden
+// gehoistet, const-Zuweisungen nicht).
+function normalizeExistingTags() {
+  const run = db.transaction(() => {
+    const rows = db.prepare("SELECT id, name FROM tags ORDER BY id ASC").all();
+    const survivorByName = new Map();
+    for (const row of rows) {
+      const normalized = normalizeTagName(row.name);
+      // Erste Zeile mit diesem normalisierten Namen wird zum Überlebenden,
+      // egal ob ihr eigener Name schon normalisiert war oder nicht - jede
+      // WEITERE Zeile mit demselben normalisierten Namen wird in sie
+      // zusammengeführt. Nur auf "hat sich der Name geändert" zu prüfen
+      // hätte den Fall übersehen, dass zwei bereits-kleingeschriebene
+      // Schreibweisen wie "blume" (id 3) nach "Blume" (id 1) kollidieren.
+      if (!survivorByName.has(normalized)) {
+        if (normalized !== row.name) {
+          db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(normalized, row.id);
+        }
+        survivorByName.set(normalized, row.id);
+        continue;
+      }
+      const survivorId = survivorByName.get(normalized);
+      db.prepare(
+        "INSERT OR IGNORE INTO design_tags (design_id, tag_id) SELECT design_id, ? FROM design_tags WHERE tag_id = ?"
+      ).run(survivorId, row.id);
+      db.prepare("DELETE FROM design_tags WHERE tag_id = ?").run(row.id);
+      db.prepare("DELETE FROM tags WHERE id = ?").run(row.id);
+    }
+  });
+  run();
 }
 
 function getDesignTags(designId) {
@@ -784,7 +855,7 @@ function addTag(name) {
 // anders als bei Kategorien reicht die eine Zeile in der tags-Tabelle,
 // design_tags verweist nur per tag_id, keine Textkopie zum Nachziehen.
 function renameTag(oldName, newName) {
-  const result = db.prepare("UPDATE tags SET name = ? WHERE name = ?").run(newName, oldName);
+  const result = db.prepare("UPDATE tags SET name = ? WHERE name = ?").run(normalizeTagName(newName), oldName);
   if (result.changes === 0) return null;
   return getTags();
 }
@@ -1112,4 +1183,6 @@ module.exports = {
   addFeedback,
   setFeedbackStatus,
   deleteFeedback,
+  FEEDBACK_ART_VALUES,
+  normalizeTagName,
 };

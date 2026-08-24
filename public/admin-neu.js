@@ -6,6 +6,29 @@ const imageInput = document.getElementById("image");
 const filePreview = document.getElementById("image-file-preview");
 const tagsField = document.getElementById("tags-field");
 
+// Ausbau 1.6, Ebene 3: kleine aufklappbare Hinweise statt langem Fließtext,
+// der ab dem dritten Design ohnehin überlesen wird.
+document.querySelectorAll(".field-help-toggle").forEach((btn) => {
+  const target = document.getElementById(btn.dataset.help);
+  if (!target) return;
+  btn.addEventListener("click", () => {
+    target.hidden = !target.hidden;
+  });
+});
+
+// Ebene 2: Zeichenanzeige mit Zielbereich, damit Beschreibungen nicht
+// zwischen zwei Zeilen und zwei Absätzen schwanken.
+const descriptionField = document.getElementById("description");
+const descriptionCount = document.getElementById("description-count");
+if (descriptionField && descriptionCount) {
+  const updateCount = () => {
+    const len = descriptionField.value.length;
+    descriptionCount.textContent = `${len} Zeichen (Richtwert: 100–300)`;
+  };
+  descriptionField.addEventListener("input", updateCount);
+  updateCount();
+}
+
 function el(tag, props, children) {
   const node = document.createElement(tag);
   Object.assign(node, props);
@@ -43,7 +66,10 @@ function buildTagInput(allTags) {
   }
 
   function addTag(name) {
-    const trimmed = name.trim();
+    // Kleinschreibung passend zur Schreibkonvention (Ausbau 1.6/1.8) - sonst
+    // erscheinen "Blume" und "blume" clientseitig als zwei Chips, obwohl der
+    // Server sie ohnehin auf denselben Tag zusammenführt.
+    const trimmed = name.trim().toLowerCase();
     if (!trimmed || selected.includes(trimmed)) return;
     selected.push(trimmed);
     renderChips();
@@ -83,11 +109,17 @@ function buildTagInput(allTags) {
   return wrap;
 }
 
+// "Unsortiert" ist der bewusste Ausweg, wenn nichts passt (Ausbau 1.8/K5) -
+// steht deshalb immer als letzter Eintrag der Liste, nie als Vorauswahl.
+function sortCategoriesUnsortiertLast(categories) {
+  return [...categories].sort((a, b) => (a === "Unsortiert") - (b === "Unsortiert"));
+}
+
 async function loadCategories() {
   const res = await fetch("/api/config");
   const config = await res.json();
   categorySelect.innerHTML = "";
-  config.categories.forEach((c) => {
+  sortCategoriesUnsortiertLast(config.categories).forEach((c) => {
     categorySelect.appendChild(el("option", { value: c, textContent: c }));
   });
   tagsField.appendChild(buildTagInput(config.tags || []));
@@ -107,7 +139,23 @@ imageInput.addEventListener("change", () => {
   });
 });
 
+// Warnt vor versehentlichem Verlassen der Seite, solange Angaben gemacht
+// wurden (Name eingetragen oder Dateien ausgewählt), aber noch nicht
+// abgeschickt - submitted unterdrückt die Warnung bei der eigenen
+// Weiterleitung nach erfolgreichem Absenden.
+let submitted = false;
+window.addEventListener("beforeunload", (e) => {
+  if (!submitted && (document.getElementById("name").value.trim() || imageInput.files.length > 0)) {
+    e.preventDefault();
+    e.returnValue = "";
+  }
+});
+
 const submitBtn = form.querySelector('button[type="submit"]');
+
+function formatFehlgeschlagen(list) {
+  return list.map((f) => `${f.dateiname}: ${f.grund}`).join(" | ");
+}
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -120,7 +168,7 @@ form.addEventListener("submit", async (e) => {
   // anlegen - jeder Klick landet als eigener POST-Request mit eigener ID.
   if (submitBtn.disabled) return;
   submitBtn.disabled = true;
-  submitBtn.textContent = "Lädt hoch …";
+  submitBtn.textContent = "Lädt hoch … Bitte Fenster nicht schließen.";
 
   try {
     const formData = new FormData(form);
@@ -128,13 +176,19 @@ form.addEventListener("submit", async (e) => {
 
     if (res.ok) {
       const data = await res.json();
+      const parts = [];
+      let className = "success";
       if (data.qualityWarnings && data.qualityWarnings.length > 0) {
-        message.textContent = `Design hochgeladen. ⚠️ ${data.qualityWarnings.join(" | ")} Weiter zur Bilder-Zuordnung …`;
-        message.className = "warning";
-      } else {
-        message.textContent = "Design hochgeladen. Weiter zur Bilder-Zuordnung …";
-        message.className = "success";
+        parts.push(`⚠️ ${data.qualityWarnings.join(" | ")}`);
+        className = "warning";
       }
+      if (data.fehlgeschlagen && data.fehlgeschlagen.length > 0) {
+        parts.push(`❌ Nicht mit hochgeladen: ${formatFehlgeschlagen(data.fehlgeschlagen)} - lässt sich auf der nächsten Seite nachholen.`);
+        className = "warning";
+      }
+      message.textContent = `Design hochgeladen. ${parts.join(" ")} Weiter zur Bilder-Zuordnung …`.trim();
+      message.className = className;
+      submitted = true;
       window.location.href = `/mitarbeiter/designs/bilder?id=${data.id}`;
     } else {
       const data = await res.json().catch(() => ({}));

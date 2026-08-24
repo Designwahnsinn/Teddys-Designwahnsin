@@ -44,6 +44,7 @@ setInterval(loadNewInquiriesCount, 60 * 1000);
 
 // --- Feedback & offene Punkte ---
 const feedbackForm = document.getElementById("feedback-form");
+const feedbackArt = document.getElementById("feedback-art");
 const feedbackText = document.getElementById("feedback-text");
 const feedbackList = document.getElementById("feedback-list");
 
@@ -77,10 +78,12 @@ function renderFeedbackItem(item) {
 
   return el("div", { className: `feedback-item${item.status === "erledigt" ? " feedback-done" : ""}` }, [
     checkbox,
+    item.art ? el("span", { className: `feedback-item-art feedback-art-${item.art}`, textContent: item.art }) : null,
     el("span", { className: "feedback-item-text", textContent: item.text }),
+    item.kontext ? el("span", { className: "feedback-item-kontext", textContent: item.kontext, title: "Kontext: von welcher Seite der Eintrag kam" }) : null,
     el("span", { className: "feedback-item-date", textContent: formatDate(item.createdAt) }),
     deleteBtn,
-  ]);
+  ].filter(Boolean));
 }
 
 async function loadFeedback() {
@@ -101,7 +104,7 @@ feedbackForm.addEventListener("submit", async (e) => {
   await fetch("/api/admin/feedback", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, art: feedbackArt.value, kontext: "Dashboard" }),
   });
   feedbackText.value = "";
   loadFeedback();
