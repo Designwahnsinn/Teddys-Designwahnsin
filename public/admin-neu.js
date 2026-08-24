@@ -107,7 +107,23 @@ imageInput.addEventListener("change", () => {
   });
 });
 
+// Warnt vor versehentlichem Verlassen der Seite, solange Angaben gemacht
+// wurden (Name eingetragen oder Dateien ausgewählt), aber noch nicht
+// abgeschickt - submitted unterdrückt die Warnung bei der eigenen
+// Weiterleitung nach erfolgreichem Absenden.
+let submitted = false;
+window.addEventListener("beforeunload", (e) => {
+  if (!submitted && (document.getElementById("name").value.trim() || imageInput.files.length > 0)) {
+    e.preventDefault();
+    e.returnValue = "";
+  }
+});
+
 const submitBtn = form.querySelector('button[type="submit"]');
+
+function formatFehlgeschlagen(list) {
+  return list.map((f) => `${f.dateiname}: ${f.grund}`).join(" | ");
+}
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -120,7 +136,7 @@ form.addEventListener("submit", async (e) => {
   // anlegen - jeder Klick landet als eigener POST-Request mit eigener ID.
   if (submitBtn.disabled) return;
   submitBtn.disabled = true;
-  submitBtn.textContent = "Lädt hoch …";
+  submitBtn.textContent = "Lädt hoch … Bitte Fenster nicht schließen.";
 
   try {
     const formData = new FormData(form);
@@ -128,13 +144,19 @@ form.addEventListener("submit", async (e) => {
 
     if (res.ok) {
       const data = await res.json();
+      const parts = [];
+      let className = "success";
       if (data.qualityWarnings && data.qualityWarnings.length > 0) {
-        message.textContent = `Design hochgeladen. ⚠️ ${data.qualityWarnings.join(" | ")} Weiter zur Bilder-Zuordnung …`;
-        message.className = "warning";
-      } else {
-        message.textContent = "Design hochgeladen. Weiter zur Bilder-Zuordnung …";
-        message.className = "success";
+        parts.push(`⚠️ ${data.qualityWarnings.join(" | ")}`);
+        className = "warning";
       }
+      if (data.fehlgeschlagen && data.fehlgeschlagen.length > 0) {
+        parts.push(`❌ Nicht mit hochgeladen: ${formatFehlgeschlagen(data.fehlgeschlagen)} - lässt sich auf der nächsten Seite nachholen.`);
+        className = "warning";
+      }
+      message.textContent = `Design hochgeladen. ${parts.join(" ")} Weiter zur Bilder-Zuordnung …`.trim();
+      message.className = className;
+      submitted = true;
       window.location.href = `/mitarbeiter/designs/bilder?id=${data.id}`;
     } else {
       const data = await res.json().catch(() => ({}));

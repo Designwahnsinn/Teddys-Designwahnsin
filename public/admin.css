@@ -679,6 +679,26 @@
   border: 1px solid var(--border);
 }
 
+/* Schritt 5: eine Zeile pro Datei für Bildtyp + Bezeichnung */
+.per-file-rows { display: grid; gap: 0.5rem; margin-top: 0.4rem; }
+.per-file-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+.per-file-row select, .per-file-row input[type="text"] { padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--border); border-radius: 6px; }
+.per-file-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; }
+.per-file-thumb-placeholder { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+.per-file-name { font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.per-file-defaults { background: var(--bg-alt); border-style: dashed; }
+.upload-progress { font-size: 0.85rem; color: var(--accent); font-weight: 600; }
+.saved-hint { font-size: 0.78rem; color: #2d7a4f; padding: 0 1rem; display: block; }
+
 /* Bilder-Varianten-Verwaltung */
 .image-grid {
   display: grid;
