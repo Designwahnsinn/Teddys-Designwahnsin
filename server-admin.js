@@ -517,6 +517,7 @@ app.get("/api/config", requireAuth, (req, res) => {
     siteLive,
     previewUrl: !siteLive && previewSecret ? `${PUBLIC_ORIGINS[0]}/?preview=${previewSecret}` : null,
     orderTokenValidityDays: db.ORDER_TOKEN_VALIDITY_DAYS,
+    feedbackArtValues: db.FEEDBACK_ART_VALUES,
   });
 });
 
@@ -1511,7 +1512,12 @@ app.get("/api/admin/feedback", requireAuth, (req, res) => {
 app.post("/api/admin/feedback", requireAuth, (req, res) => {
   const text = (req.body.text || "").trim();
   if (!text) return res.status(400).json({ error: "Text ist Pflichtfeld" });
-  res.status(201).json(db.addFeedback(text));
+  const art = typeof req.body.art === "string" && db.FEEDBACK_ART_VALUES.includes(req.body.art) ? req.body.art : null;
+  // kontext kommt vom Client (aktuelle Seite + ggf. Design-ID aus der URL) -
+  // reiner Hinweistext für die spätere Auswertung, kein sicherheitsrelevanter
+  // Wert, aber trotzdem auf eine sinnvolle Länge begrenzt.
+  const kontext = typeof req.body.kontext === "string" ? req.body.kontext.trim().slice(0, 200) : null;
+  res.status(201).json(db.addFeedback({ text, art, kontext }));
 });
 
 app.patch("/api/admin/feedback/:id", requireAuth, (req, res) => {

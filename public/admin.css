@@ -66,6 +66,15 @@
 .feedback-section { max-width: 700px; margin-top: 2.5rem; }
 .feedback-section h2 { color: var(--accent); font-size: 1.2rem; margin-bottom: 0.3rem; }
 .feedback-form { display: flex; gap: 0.6rem; margin: 1rem 0 1.25rem; }
+.feedback-form select {
+  flex: 0 0 auto;
+  padding: 0.6rem 0.5rem;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  background: #fff;
+}
 .feedback-form textarea {
   flex: 1;
   padding: 0.6rem 0.8rem;
@@ -97,6 +106,20 @@
 .feedback-item input[type="checkbox"] { width: auto; flex-shrink: 0; }
 .feedback-item-text { flex: 1; font-size: 0.9rem; }
 .feedback-item.feedback-done .feedback-item-text { text-decoration: line-through; color: var(--muted); }
+.feedback-item-art {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--text);
+}
+.feedback-art-Fehler { background: #f6d4cd; color: #a6301f; }
+.feedback-art-Umständlich { background: #ffe9c2; color: #a6660b; }
+.feedback-art-Fehlt { background: #d9e6f7; color: #2a5da8; }
+.feedback-art-Idee { background: #ddf2e0; color: #2d7a4f; }
+.feedback-item-kontext { flex-shrink: 0; font-size: 0.72rem; color: var(--muted); background: var(--border); padding: 0.1rem 0.5rem; border-radius: 6px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feedback-item-date { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
 .feedback-delete {
   border: none;
@@ -798,6 +821,58 @@
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
 }
+/* Schnellerfassung (feedback-widget.js), auf jeder Admin-Seite eingebunden */
+.feedback-widget-toggle {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 500;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 1.3rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+.feedback-widget-panel {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 4.25rem;
+  z-index: 500;
+  width: 260px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.8rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  display: grid;
+  gap: 0.5rem;
+}
+.feedback-widget-kontext { font-size: 0.72rem; color: var(--muted); }
+.feedback-widget-art, .feedback-widget-text {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+.feedback-widget-text { resize: vertical; }
+.feedback-widget-actions { display: flex; align-items: center; gap: 0.6rem; }
+.feedback-widget-save {
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+.feedback-widget-status { font-size: 0.75rem; color: var(--muted); }
+
 .quality-warning {
   color: #a6660b;
   background: #fff8e6;

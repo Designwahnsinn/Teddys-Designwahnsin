@@ -263,6 +263,12 @@ if (ensureColumn("design_images", "sortOrder", "INTEGER")) {
 ensureColumn("orders", "kunde_instagram", "TEXT");
 ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
+// Testkonzept Test A: Art des Eintrags (Fehler/Umständlich/Fehlt/Idee) und
+// automatisch mitgeschickter Kontext (Seite + ggf. Design-ID), von wo der
+// Eintrag kam - macht aus "Hochladen ist umständlich" ein "aus der
+// Bilderverwaltung von TD-0042" statt einer bloßen Ahnung bei der Auswertung.
+ensureColumn("feedback", "art", "TEXT");
+ensureColumn("feedback", "kontext", "TEXT");
 // Von der Kundin (öffentliche Anfrage) oder Mitarbeitenden (Bestellung
 // neu/bearbeiten) pro zugeordnetem Design ausgewählte Bild-Varianten, als
 // JSON-Array der nummerierten Labels (z.B. ["1. Design", "3. Motiv 2"]).
@@ -700,12 +706,19 @@ function deleteDesignImage(imageId) {
 
 // --- Feedback-Notizen (Dashboard) ---
 
+// Testkonzept Test A: entscheidend für die Auswertung nach dem Testlauf -
+// Fehler gehören sofort behoben, Umständliches wandert in Schritt 8 des
+// Upload-Plans, Fehlendes ins Ausbau-Dokument.
+const FEEDBACK_ART_VALUES = ["Fehler", "Umständlich", "Fehlt", "Idee"];
+
 function listFeedback() {
   return db.prepare("SELECT * FROM feedback ORDER BY (status = 'offen') DESC, rowid DESC").all();
 }
 
-function addFeedback(text) {
-  const info = db.prepare("INSERT INTO feedback (text, status, createdAt) VALUES (?, 'offen', ?)").run(text, new Date().toISOString());
+function addFeedback({ text, art, kontext }) {
+  const info = db
+    .prepare("INSERT INTO feedback (text, art, kontext, status, createdAt) VALUES (?, ?, ?, 'offen', ?)")
+    .run(text, art || null, kontext || null, new Date().toISOString());
   return db.prepare("SELECT * FROM feedback WHERE id = ?").get(info.lastInsertRowid);
 }
 
@@ -1122,4 +1135,5 @@ module.exports = {
   addFeedback,
   setFeedbackStatus,
   deleteFeedback,
+  FEEDBACK_ART_VALUES,
 };
