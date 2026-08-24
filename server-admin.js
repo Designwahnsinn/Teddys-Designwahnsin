@@ -1564,6 +1564,75 @@ app.delete("/api/admin/feedback/:id", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Testkonzept: Auswertung des Testlaufs (Test A + Test B) als CSV ---
+// Für eine einmalige Testauswertung lohnt keine eigene Ansicht im
+// Mitarbeiterbereich - eine Tabellenkalkulation reicht, und dort lassen sich
+// Fragen stellen, die vorher niemand vorhergesehen hat.
+
+function csvEscape(value) {
+  const str = value === null || value === undefined ? "" : String(value);
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+function toCsv(headers, rows) {
+  const lines = [headers.map(csvEscape).join(",")];
+  for (const row of rows) lines.push(row.map(csvEscape).join(","));
+  // UTF-8-BOM (﻿) voranstellen - ohne das interpretiert Excel Umlaute in
+  // einer UTF-8-CSV oft falsch.
+  return "﻿" + lines.join("\r\n");
+}
+
+function sendCsv(res, filename, csv) {
+  res.set("Content-Type", "text/csv; charset=utf-8");
+  res.set("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(csv);
+}
+
+app.get("/api/admin/export/feedback.csv", requireAuth, (req, res) => {
+  const headers = ["id", "erstelltAm", "art", "kontext", "status", "erledigtAm", "text"];
+  const rows = db.listFeedback().map((f) => [f.id, f.createdAt, f.art || "", f.kontext || "", f.status, f.erledigtAt || "", f.text]);
+  sendCsv(res, "feedback.csv", toCsv(headers, rows));
+});
+
+app.get("/api/admin/export/designs.csv", requireAuth, (req, res) => {
+  const headers = [
+    "id",
+    "name",
+    "kategorie",
+    "angelegtAm",
+    "onlineSeitAm",
+    "aktuellOnline",
+    "anzahlBilder",
+    "hatBeschreibung",
+    "anzahlTags",
+    "preisDesign",
+    "preisPng",
+    "preisHintergrund",
+    "verkaufszaehler",
+  ];
+  const rows = db.getDesigns().map((d) => {
+    // Nur die "Ohne Wasserzeichen"-Zeilen zählen, damit jede hochgeladene
+    // Originaldatei einmal zählt statt doppelt (mit + ohne Wasserzeichen).
+    const anzahlBilder = db.getDesignImages(d.id).filter((img) => !img.wasserzeichen).length;
+    return [
+      d.id,
+      d.name,
+      d.category,
+      d.createdAt,
+      d.onlineSetAt || "",
+      d.online ? "ja" : "nein",
+      anzahlBilder,
+      d.description && d.description.trim() ? "ja" : "nein",
+      d.tags ? d.tags.length : 0,
+      d.price,
+      d.pricePng,
+      d.priceHintergrund,
+      d.verkaufszaehler,
+    ];
+  });
+  sendCsv(res, "designs.csv", toCsv(headers, rows));
+});
+
 // Zentrale Fehlerbehandlung - ohne diese landet z.B. ein MulterError (falsches
 // Feld, zu viele Dateien, Datei zu groß) im Express-Standard-Handler und
 // erzeugt einen rohen 500er samt Stacktrace statt einer verständlichen Meldung.

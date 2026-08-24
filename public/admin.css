@@ -63,6 +63,20 @@
 }
 .quicklink:hover { background: var(--accent); color: #fff; transform: translateY(-2px); }
 
+.export-section { max-width: 700px; margin-top: 2.5rem; }
+.export-section h2 { color: var(--accent); font-size: 1.2rem; margin-bottom: 0.3rem; }
+.export-actions { display: flex; gap: 0.6rem; margin-top: 0.8rem; }
+.export-btn {
+  display: inline-block;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  color: var(--accent);
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  text-decoration: none;
+}
+.export-btn:hover { background: var(--accent); color: #fff; }
+
 .feedback-section { max-width: 700px; margin-top: 2.5rem; }
 .feedback-section h2 { color: var(--accent); font-size: 1.2rem; margin-bottom: 0.3rem; }
 .feedback-form { display: flex; gap: 0.6rem; margin: 1rem 0 1.25rem; }

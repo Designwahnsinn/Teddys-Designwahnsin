@@ -232,6 +232,13 @@ function ensureColumn(table, column, definition) {
 }
 ensureColumn("designs", "instagramLink", "TEXT");
 ensureColumn("designs", "online", "INTEGER NOT NULL DEFAULT 1");
+// Testkonzept: "Aus dem Abstand zwischen Anlegen und Onlineschalten ergibt
+// sich die Bearbeitungsdauer je Design" - ohne diesen Zeitstempel lässt sich
+// das nicht auswerten (createdAt allein sagt nichts darüber, wann ein Design
+// tatsächlich veröffentlicht wurde). NULL = noch nie online gewesen, wird
+// beim ersten Wechsel auf online=1 einmalig gesetzt (siehe addDesign/updateDesign)
+// und danach nicht mehr verändert, auch wenn später wieder offline geschaltet wird.
+ensureColumn("designs", "onlineSetAt", "TEXT");
 // Gestaffelte Preise statt eines einzigen Werts: "price" bleibt der
 // Design-Preis (jetzt Standard 10€ statt vorher optional), dazu die
 // PNG-Dateien (alle Motive einzeln, Standard 6€) und der Hintergrund separat
@@ -519,9 +526,10 @@ function nextId() {
 }
 
 function addDesign(design) {
+  const onlineFlag = design.online === undefined ? 1 : (design.online ? 1 : 0);
   db.prepare(`
-    INSERT INTO designs (id, name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, image, online, verkaufszaehler, createdAt)
-    VALUES (@id, @name, @description, @category, @price, @pricePng, @priceHintergrund, @status, @kaufLink, @driveLink, @instagramLink, @image, @online, 0, @createdAt)
+    INSERT INTO designs (id, name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, image, online, onlineSetAt, verkaufszaehler, createdAt)
+    VALUES (@id, @name, @description, @category, @price, @pricePng, @priceHintergrund, @status, @kaufLink, @driveLink, @instagramLink, @image, @online, @onlineSetAt, 0, @createdAt)
   `).run({
     id: design.id,
     name: design.name,
@@ -536,7 +544,8 @@ function addDesign(design) {
     driveLink: design.driveLink || "",
     instagramLink: design.instagramLink || "",
     image: design.image,
-    online: design.online === undefined ? 1 : (design.online ? 1 : 0),
+    online: onlineFlag,
+    onlineSetAt: onlineFlag ? design.createdAt : null,
     createdAt: design.createdAt,
   });
   db.prepare(`
@@ -554,9 +563,17 @@ function updateDesign(id, changes) {
   if (!existing) return null;
 
   const fields = Object.keys(changes).filter((k) => DESIGN_UPDATE_FIELDS.includes(k));
+  const values = { ...changes };
+  // Erster Wechsel auf online=1 setzt einmalig onlineSetAt - Grundlage für
+  // die Testkonzept-Auswertung "Dauer von Anlegen bis Online". Danach nicht
+  // mehr verändert, auch nicht bei späterem Offline-/wieder Online-Schalten.
+  if (fields.includes("online") && Number(changes.online) === 1 && !existing.onlineSetAt) {
+    fields.push("onlineSetAt");
+    values.onlineSetAt = new Date().toISOString();
+  }
   if (fields.length > 0) {
     const setClause = fields.map((f) => `${f} = @${f}`).join(", ");
-    db.prepare(`UPDATE designs SET ${setClause} WHERE id = @id`).run({ ...changes, id });
+    db.prepare(`UPDATE designs SET ${setClause} WHERE id = @id`).run({ ...values, id });
   }
   if (changes.tags !== undefined) setDesignTags(id, changes.tags);
   return getDesign(id);
