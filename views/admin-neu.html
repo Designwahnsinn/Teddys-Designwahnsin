@@ -28,12 +28,30 @@
         <input type="text" id="name" name="name" required>
       </div>
       <div>
-        <label for="category">Kategorie</label>
+        <label for="category">
+          Kategorie
+          <button type="button" class="field-help-toggle" data-help="help-category" aria-label="Hinweis zur Kategorie anzeigen">?</button>
+        </label>
         <select id="category" name="category" required></select>
+        <p class="field-help" id="help-category" hidden>
+          Die Kategorie ist die Navigation der Webseite und soll wenige, stabile Werte behalten. Wähle die Kategorie,
+          die am ehesten passt – bei Grenzfällen reicht die nächstbeste. Passt wirklich nichts, wähle „Unsortiert“,
+          das blockiert das Hochladen nicht. Eine neue Kategorie legst du bewusst über die Kategorienverwaltung an,
+          nicht hier.
+        </p>
       </div>
       <div>
-        <label for="description">Beschreibung</label>
-        <textarea id="description" name="description" rows="2"></textarea>
+        <label for="description">
+          Beschreibung
+          <button type="button" class="field-help-toggle" data-help="help-description" aria-label="Hinweis zur Beschreibung anzeigen">?</button>
+        </label>
+        <textarea id="description" name="description" rows="2" placeholder="Verspieltes Blumenmuster in Pastelltönen, ideal für Frühlings- und Sommerdesigns. Enthält 3 Motiv-Varianten und einen passenden Hintergrund, PNG mit transparentem Hintergrund."></textarea>
+        <p class="field-hint" id="description-count">0 Zeichen (Richtwert: 100–300)</p>
+        <p class="field-help" id="help-description" hidden>
+          Ein bis zwei Sätze, die beschreiben, was das Design zeigt und wofür es sich eignet – Ansprache neutral, wie
+          im Platzhaltertext oben. Angaben zu Dateiformat oder Auflösung sind optional, aber hilfreich. Keine
+          Füllwörter oder werbliche Übertreibung.
+        </p>
       </div>
       <div>
         <label for="price">Preis Design (€)</label>
@@ -76,8 +94,16 @@
         <p class="field-hint">Nur im Mitarbeiter-Bereich sichtbar, nicht auf der Website.</p>
       </div>
       <div>
-        <label>Tags (optional, zur besseren Auffindbarkeit)</label>
+        <label>
+          Tags (optional, zur besseren Auffindbarkeit)
+          <button type="button" class="field-help-toggle" data-help="help-tags" aria-label="Hinweis zu Tags anzeigen">?</button>
+        </label>
         <div id="tags-field"></div>
+        <p class="field-help" id="help-tags" hidden>
+          Tags beschreiben Eigenschaften und werden für Suche und Filter gebraucht, nicht für die Navigation.
+          Durchgehend Kleinschreibung, Einzahl (z. B. „blume“ statt „blumen“). Zwei bis fünf Tags sind meist genug.
+          Bei Unsicherheit erst grob taggen, das lässt sich später zusammenführen.
+        </p>
       </div>
       <div class="quality-hint-box">
         <strong>Export-Einstellungen in Canva</strong>

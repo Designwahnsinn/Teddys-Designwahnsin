@@ -6,6 +6,29 @@ const imageInput = document.getElementById("image");
 const filePreview = document.getElementById("image-file-preview");
 const tagsField = document.getElementById("tags-field");
 
+// Ausbau 1.6, Ebene 3: kleine aufklappbare Hinweise statt langem Fließtext,
+// der ab dem dritten Design ohnehin überlesen wird.
+document.querySelectorAll(".field-help-toggle").forEach((btn) => {
+  const target = document.getElementById(btn.dataset.help);
+  if (!target) return;
+  btn.addEventListener("click", () => {
+    target.hidden = !target.hidden;
+  });
+});
+
+// Ebene 2: Zeichenanzeige mit Zielbereich, damit Beschreibungen nicht
+// zwischen zwei Zeilen und zwei Absätzen schwanken.
+const descriptionField = document.getElementById("description");
+const descriptionCount = document.getElementById("description-count");
+if (descriptionField && descriptionCount) {
+  const updateCount = () => {
+    const len = descriptionField.value.length;
+    descriptionCount.textContent = `${len} Zeichen (Richtwert: 100–300)`;
+  };
+  descriptionField.addEventListener("input", updateCount);
+  updateCount();
+}
+
 function el(tag, props, children) {
   const node = document.createElement(tag);
   Object.assign(node, props);
@@ -83,11 +106,17 @@ function buildTagInput(allTags) {
   return wrap;
 }
 
+// "Unsortiert" ist der bewusste Ausweg, wenn nichts passt (Ausbau 1.8/K5) -
+// steht deshalb immer als letzter Eintrag der Liste, nie als Vorauswahl.
+function sortCategoriesUnsortiertLast(categories) {
+  return [...categories].sort((a, b) => (a === "Unsortiert") - (b === "Unsortiert"));
+}
+
 async function loadCategories() {
   const res = await fetch("/api/config");
   const config = await res.json();
   categorySelect.innerHTML = "";
-  config.categories.forEach((c) => {
+  sortCategoriesUnsortiertLast(config.categories).forEach((c) => {
     categorySelect.appendChild(el("option", { value: c, textContent: c }));
   });
   tagsField.appendChild(buildTagInput(config.tags || []));

@@ -403,6 +403,16 @@ function repairDoubleEncryptedOrderFields() {
 repairDoubleEncryptedOrderFields();
 
 migrateFromLegacyJson();
+
+// K5 (Ausbau-Dokument): "Unsortiert" muss als Ausweg existieren, BEVOR die
+// Kategorie im Formular zur reinen Auswahlliste ohne Freitext wird (Ausbau
+// 1.6) - sonst blockiert die Liste genau den Fall, für den sie gedacht ist.
+// Einmalig nachziehen, unabhängig davon ob die Kategorien gerade frisch
+// geseedet wurden (s.o.) oder schon länger bestehen.
+if (!db.prepare("SELECT 1 FROM categories WHERE name = ?").get("Unsortiert")) {
+  db.prepare("INSERT INTO categories (name) VALUES (?)").run("Unsortiert");
+}
+
 backfillDesignImages();
 
 // Jedes Design ohne design_images-Einträge (z.B. alle vor Einführung der
