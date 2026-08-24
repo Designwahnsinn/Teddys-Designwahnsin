@@ -293,8 +293,12 @@ async function loadLightboxThumbs(design) {
       // erkennen, welche Datei/Variante sie gerade ansehen (und später zur
       // Anfrage auswählen).
       const label = variantLabel(img, i + 1);
+      // width/height als HTML-Attribute (nicht nur per CSS) - ohne die kann
+      // ein Thumbnail kurz in Originalgröße aufblitzen, bevor das Bild
+      // vollständig geladen und die CSS-Box angewendet ist, besonders bei
+      // loading="lazy" und Bildern mit sehr unterschiedlichen Seitenverhältnissen.
       const thumb = el("button", { type: "button", className: "lightbox-thumb", title: label }, [
-        el("img", { src: img.previewImage || img.image, alt: img.bezeichnung || img.kategorie, loading: "lazy" }),
+        el("img", { src: img.previewImage || img.image, alt: img.bezeichnung || img.kategorie, loading: "lazy", width: 56, height: 56 }),
         el("span", { className: "lightbox-thumb-number", textContent: String(i + 1) }),
       ]);
       if (img.image === design.image) {

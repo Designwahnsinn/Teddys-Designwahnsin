@@ -451,6 +451,14 @@ h2 {
   text-align: center;
 }
 
+/* Auf schmalen Handys wirkt die Thumbnail-Reihe sonst unnötig wuchtig - nur
+   die Thumbnails verkleinern (reine Navigation), das Hauptbild bleibt groß,
+   weil das die eigentliche Kaufentscheidung trägt. */
+@media (max-width: 480px) {
+  .lightbox-thumb { width: 44px; height: 44px; }
+  .lightbox-thumb-number { min-width: 14px; height: 14px; font-size: 0.6rem; line-height: 14px; }
+}
+
 .lightbox-info {
   padding: 1.75rem;
   display: flex;
