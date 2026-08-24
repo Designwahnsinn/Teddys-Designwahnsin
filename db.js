@@ -239,6 +239,17 @@ ensureColumn("designs", "online", "INTEGER NOT NULL DEFAULT 1");
 // beim ersten Wechsel auf online=1 einmalig gesetzt (siehe addDesign/updateDesign)
 // und danach nicht mehr verändert, auch wenn später wieder offline geschaltet wird.
 ensureColumn("designs", "onlineSetAt", "TEXT");
+// Testkonzept-Auswertung, feiner als nur Anlegen->Online: uploadDurationMs
+// ist die Zeit vom ersten Datei-Auswählen bis zum Absenden, im Browser
+// gemessen und über alle Upload-Vorgänge zu diesem Design aufaddiert (Anlegen
+// + spätere Ergänzungen über die Bilder-Verwaltung). serverProcessingMs ist
+// die reine Verarbeitungszeit auf dem Server für dieselben Vorgänge - zeigt,
+// ob technische Performance irgendwann zum Flaschenhals wird, unabhängig vom
+// Personal. Die eigentliche "Bearbeitungsdauer" (Ausfüllen von Beschreibung,
+// Tags, Preisen) muss dafür nicht extra gemessen werden: sie ergibt sich als
+// (onlineSetAt - createdAt) minus uploadDurationMs, reine Rechnung bei der Auswertung.
+ensureColumn("designs", "uploadDurationMs", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("designs", "serverProcessingMs", "INTEGER NOT NULL DEFAULT 0");
 // Gestaffelte Preise statt eines einzigen Werts: "price" bleibt der
 // Design-Preis (jetzt Standard 10€ statt vorher optional), dazu die
 // PNG-Dateien (alle Motive einzeln, Standard 6€) und der Hintergrund separat
@@ -528,8 +539,8 @@ function nextId() {
 function addDesign(design) {
   const onlineFlag = design.online === undefined ? 1 : (design.online ? 1 : 0);
   db.prepare(`
-    INSERT INTO designs (id, name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, image, online, onlineSetAt, verkaufszaehler, createdAt)
-    VALUES (@id, @name, @description, @category, @price, @pricePng, @priceHintergrund, @status, @kaufLink, @driveLink, @instagramLink, @image, @online, @onlineSetAt, 0, @createdAt)
+    INSERT INTO designs (id, name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, image, online, onlineSetAt, uploadDurationMs, serverProcessingMs, verkaufszaehler, createdAt)
+    VALUES (@id, @name, @description, @category, @price, @pricePng, @priceHintergrund, @status, @kaufLink, @driveLink, @instagramLink, @image, @online, @onlineSetAt, @uploadDurationMs, @serverProcessingMs, 0, @createdAt)
   `).run({
     id: design.id,
     name: design.name,
@@ -546,6 +557,8 @@ function addDesign(design) {
     image: design.image,
     online: onlineFlag,
     onlineSetAt: onlineFlag ? design.createdAt : null,
+    uploadDurationMs: design.uploadDurationMs || 0,
+    serverProcessingMs: design.serverProcessingMs || 0,
     createdAt: design.createdAt,
   });
   db.prepare(`
@@ -554,6 +567,15 @@ function addDesign(design) {
   `).run(design.id, design.image, design.previewImage || null, design.qualityWarning || null, design.createdAt);
   if (design.tags && design.tags.length > 0) setDesignTags(design.id, design.tags);
   return getDesign(design.id);
+}
+
+// Zählt einen weiteren Upload-Vorgang zu einem bestehenden Design dazu (z.B.
+// nachträglich Bilder über die Bilder-Verwaltung ergänzt) - addiert statt zu
+// überschreiben, damit die Gesamt-Upload-Dauer über alle Vorgänge zu diesem
+// Design erhalten bleibt.
+function addUploadTiming(id, { uploadDurationMs, serverProcessingMs }) {
+  db.prepare("UPDATE designs SET uploadDurationMs = uploadDurationMs + ?, serverProcessingMs = serverProcessingMs + ? WHERE id = ?")
+    .run(uploadDurationMs || 0, serverProcessingMs || 0, id);
 }
 
 const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "pricePng", "priceHintergrund", "status", "kaufLink", "driveLink", "instagramLink", "online"];
@@ -1157,6 +1179,7 @@ module.exports = {
   getDesign,
   nextId,
   addDesign,
+  addUploadTiming,
   updateDesign,
   deleteDesign,
   renameDesignId,

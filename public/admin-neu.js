@@ -132,7 +132,12 @@ async function loadNextId() {
   nextIdHint.textContent = `Nächste ID: ${data.id}`;
 }
 
+// Testkonzept-Auswertung: Startzeitpunkt der Aufgabe "Design hochladen" - das
+// erste Datei-Auswählen ist der konkreteste, unzweideutige Startpunkt.
+let uploadStartedAt = null;
+
 imageInput.addEventListener("change", () => {
+  if (uploadStartedAt === null) uploadStartedAt = Date.now();
   filePreview.innerHTML = "";
   [...imageInput.files].forEach((file) => {
     filePreview.appendChild(el("img", { src: URL.createObjectURL(file), alt: "Vorschau" }));
@@ -172,6 +177,7 @@ form.addEventListener("submit", async (e) => {
 
   try {
     const formData = new FormData(form);
+    if (uploadStartedAt !== null) formData.append("uploadDurationMs", String(Date.now() - uploadStartedAt));
     const res = await fetch("/api/admin/designs", { method: "POST", body: formData });
 
     if (res.ok) {

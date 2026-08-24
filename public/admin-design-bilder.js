@@ -63,7 +63,12 @@ function renderPerFileRows(files) {
   });
 }
 
+// Testkonzept-Auswertung: Startzeitpunkt dieses Upload-Vorgangs (erstes
+// Datei-Auswählen) - wird beim Absenden zum Design dazugezählt.
+let uploadStartedAt = null;
+
 fileInput.addEventListener("change", () => {
+  if (uploadStartedAt === null) uploadStartedAt = Date.now();
   filePreview.innerHTML = "";
   const files = [...fileInput.files];
   files.forEach((file) => {
@@ -289,6 +294,7 @@ uploadForm.addEventListener("submit", async (e) => {
       formData.append("typ", row ? row.querySelector("select").value : "Design");
       formData.append("bezeichnung", row ? row.querySelector("input").value : "");
     });
+    if (uploadStartedAt !== null) formData.append("uploadDurationMs", String(Date.now() - uploadStartedAt));
 
     const res = await fetch(`/api/admin/designs/${designId}/images`, { method: "POST", body: formData });
     const data = await res.json().catch(() => ({}));
@@ -297,6 +303,7 @@ uploadForm.addEventListener("submit", async (e) => {
       uploadForm.reset();
       filePreview.innerHTML = "";
       renderPerFileRows([]);
+      uploadStartedAt = null;
       const okCount = data.images.length / 2; // je Datei 2 Zeilen (mit/ohne Wasserzeichen)
       const parts = [`${okCount} Bild${okCount === 1 ? "" : "er"} hochgeladen.`];
       let className = "success";

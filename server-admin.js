@@ -303,6 +303,18 @@ function truncateFileName(name) {
   return String(name || "").slice(0, 200);
 }
 
+// Testkonzept-Auswertung: vom Client mitgeschickte Upload-Dauer (Zeit vom
+// ersten Datei-Auswählen bis zum Absenden) auf einen plausiblen Wert
+// begrenzen. Ohne Obergrenze würde z.B. eine über Nacht offen gelassene
+// Auswahl die Auswertung massiv verzerren - 2 Stunden sind für einen
+// einzelnen Upload-Vorgang immer noch großzügig.
+const MAX_PLAUSIBLE_UPLOAD_DURATION_MS = 2 * 60 * 60 * 1000;
+function clampUploadDurationMs(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(n, MAX_PLAUSIBLE_UPLOAD_DURATION_MS);
+}
+
 // 6.3: Fehlermeldungen an den Client dürfen nur bekannte, selbst formulierte
 // Texte enthalten - keine Dateipfade, Sharp-/Systemfehler oder Stacktraces.
 // Eigene Fehler (err.status gesetzt, siehe persistUploadedImage*) sind dafür
@@ -532,6 +544,11 @@ app.get("/api/admin/designs/next-id", requireAuth, (req, res) => {
 });
 
 app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (req, res) => {
+  // Testkonzept-Auswertung: Startzeitpunkt für die serverseitige
+  // Verarbeitungsdauer, uploadDurationMs kommt vom Client (Zeit vom ersten
+  // Datei-Auswählen bis zum Absenden, siehe admin-neu.js).
+  const requestStart = Date.now();
+  const uploadDurationMs = clampUploadDurationMs(req.body.uploadDurationMs);
   const { name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink } = req.body;
   const files = req.files || [];
   if (!name || !category || files.length === 0) {
@@ -665,6 +682,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
       if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
     }
 
+    db.addUploadTiming(design.id, { uploadDurationMs, serverProcessingMs: Date.now() - requestStart });
     res.status(201).json({ ...design, qualityWarnings, fehlgeschlagen });
   } catch (err) {
     res.status(err.status || 400).json({ error: describeUploadError(err, "Hauptbild") });
@@ -762,6 +780,11 @@ app.get("/api/admin/designs/:id/images", requireAuth, (req, res) => {
 });
 
 app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 30), async (req, res) => {
+  // Testkonzept-Auswertung: siehe POST /api/admin/designs - hier zählt die
+  // Dauer als weiterer Upload-Vorgang zum selben Design dazu (addUploadTiming
+  // addiert statt zu überschreiben), falls z.B. später noch Motive/Hintergründe ergänzt werden.
+  const requestStart = Date.now();
+  const uploadDurationMs = clampUploadDurationMs(req.body.uploadDurationMs);
   const design = db.getDesign(req.params.id);
   if (!design) return res.status(404).json({ error: "Design nicht gefunden" });
 
@@ -873,6 +896,10 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 30
       images.push(watermarked, clean);
       if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
     }
+
+    // Zeit zählt auch bei einem gescheiterten Versuch dazu - die Mitarbeiterin
+    // hat sie so oder so investiert.
+    db.addUploadTiming(design.id, { uploadDurationMs, serverProcessingMs: Date.now() - requestStart });
 
     if (images.length === 0) {
       return res.status(400).json({ error: "Keine der Dateien konnte verarbeitet werden.", images, qualityWarnings, fehlgeschlagen });
@@ -1609,11 +1636,23 @@ app.get("/api/admin/export/designs.csv", requireAuth, (req, res) => {
     "preisPng",
     "preisHintergrund",
     "verkaufszaehler",
+    "uploadDauerMinuten",
+    "serverVerarbeitungSekunden",
+    "bearbeitungsdauerMinuten",
   ];
   const rows = db.getDesigns().map((d) => {
     // Nur die "Ohne Wasserzeichen"-Zeilen zählen, damit jede hochgeladene
     // Originaldatei einmal zählt statt doppelt (mit + ohne Wasserzeichen).
     const anzahlBilder = db.getDesignImages(d.id).filter((img) => !img.wasserzeichen).length;
+    const uploadDauerMinuten = Math.round((d.uploadDurationMs / 60000) * 10) / 10;
+    // Bearbeitungsdauer = Gesamtzeit von Anlegen bis Online, abzüglich der
+    // reinen Upload-Zeit - beschreibt also das Ausfüllen von Beschreibung,
+    // Tags, Preisen usw. Nur berechenbar, wenn das Design schon online war.
+    let bearbeitungsdauerMinuten = "";
+    if (d.onlineSetAt) {
+      const gesamtMinuten = (new Date(d.onlineSetAt) - new Date(d.createdAt)) / 60000;
+      bearbeitungsdauerMinuten = Math.max(0, Math.round((gesamtMinuten - uploadDauerMinuten) * 10) / 10);
+    }
     return [
       d.id,
       d.name,
@@ -1628,6 +1667,9 @@ app.get("/api/admin/export/designs.csv", requireAuth, (req, res) => {
       d.pricePng,
       d.priceHintergrund,
       d.verkaufszaehler,
+      uploadDauerMinuten,
+      Math.round((d.serverProcessingMs / 1000) * 10) / 10,
+      bearbeitungsdauerMinuten,
     ];
   });
   sendCsv(res, "designs.csv", toCsv(headers, rows));
