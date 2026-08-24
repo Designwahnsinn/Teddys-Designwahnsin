@@ -813,17 +813,56 @@
   font-family: inherit;
   width: calc(100% - 2rem);
 }
-.move-btn {
+/* Schritt 8: Kachel statt getrennter Zeilen für Wasserzeichen + Verkaufsdatei */
+.image-card { position: relative; }
+.image-card-head { padding: 0.5rem 1rem 0; }
+.image-card-head input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+.pair-thumbs { display: flex; }
+.pair-thumbs img { width: 100%; height: 120px; object-fit: cover; display: block; }
+.pair-thumb { flex: 1 1 50%; min-width: 0; position: relative; }
+.pair-thumb-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.65rem;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.image-card[draggable="true"] { cursor: grab; }
+.image-card.dragging { opacity: 0.4; cursor: grabbing; }
+
+/* Mehrfachauswahl-Leiste für Massen-Online/Offline */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  background: var(--bg-alt);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.bulk-bar button {
   border: 1px solid var(--border);
   background: #fff;
   color: var(--text);
   border-radius: 8px;
-  padding: 0.4rem 0.7rem;
-  font-size: 0.9rem;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
   cursor: pointer;
-  line-height: 1;
+  font-weight: 600;
 }
-.move-btn:hover { border-color: var(--accent); color: var(--accent); }
+.bulk-bar #bulk-online { border-color: var(--accent); color: var(--accent); }
+.bulk-bar #bulk-offline { border-color: #a6660b; color: #a6660b; }
+.bulk-bar .bulk-clear-btn { margin-left: auto; font-weight: 400; color: var(--muted); }
 
 /* Verkaufsdatei (ohne Wasserzeichen) deutlich hervorheben - das ist die Datei,
    die Kunden tatsächlich erhalten, Fehler hier sind besonders kritisch */

@@ -278,6 +278,37 @@ ensureColumn("design_images", "typ", "TEXT");
 if (ensureColumn("design_images", "sortOrder", "INTEGER")) {
   db.exec("UPDATE design_images SET sortOrder = id WHERE sortOrder IS NULL");
 }
+// Verknüpft die beiden zusammengehörigen Zeilen einer hochgeladenen
+// Originaldatei (mit + ohne Wasserzeichen) - damit lassen sich beide in der
+// Bilder-Verwaltung als eine Kachel mit gemeinsamem Typ/Bezeichnung
+// bearbeiten, statt zweimal dasselbe einzutragen. Wird beim Hochladen ab
+// jetzt immer gesetzt (siehe server-admin.js); bestehende Zeilen ohne
+// pairId einmalig über den Fallback aus Schritt 8 nachziehen: Zeilen mit
+// gleichem Design, Typ und Bezeichnung, bei denen genau eine "mit" und eine
+// "ohne" Wasserzeichen ist, gelten als Paar. Ohne passenden Partner bleibt
+// die Zeile eine eigene Einzel-Kachel.
+if (ensureColumn("design_images", "pairId", "TEXT")) {
+  const rows = db.prepare("SELECT id, design_id, typ, bezeichnung, wasserzeichen FROM design_images WHERE pairId IS NULL").all();
+  const groups = new Map();
+  for (const row of rows) {
+    const key = `${row.design_id}\u0000${row.typ || ""}\u0000${row.bezeichnung || ""}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  const setPairId = db.prepare("UPDATE design_images SET pairId = ? WHERE id = ?");
+  for (const group of groups.values()) {
+    const withWm = group.filter((r) => r.wasserzeichen);
+    const withoutWm = group.filter((r) => !r.wasserzeichen);
+    const n = Math.min(withWm.length, withoutWm.length);
+    for (let i = 0; i < n; i++) {
+      const pairId = crypto.randomUUID();
+      setPairId.run(pairId, withWm[i].id);
+      setPairId.run(pairId, withoutWm[i].id);
+    }
+    for (let i = n; i < withWm.length; i++) setPairId.run(crypto.randomUUID(), withWm[i].id);
+    for (let i = n; i < withoutWm.length; i++) setPairId.run(crypto.randomUUID(), withoutWm[i].id);
+  }
+}
 ensureColumn("orders", "kunde_instagram", "TEXT");
 ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
@@ -562,9 +593,9 @@ function addDesign(design) {
     createdAt: design.createdAt,
   });
   db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, sortOrder, createdAt)
-    VALUES (?, 'Mit Wasserzeichen', 'Design', 'Hauptbild', ?, ?, 1, 1, ?, 1, ?)
-  `).run(design.id, design.image, design.previewImage || null, design.qualityWarning || null, design.createdAt);
+    INSERT INTO design_images (design_id, kategorie, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, sortOrder, pairId, createdAt)
+    VALUES (?, 'Mit Wasserzeichen', 'Design', 'Hauptbild', ?, ?, 1, 1, ?, 1, ?, ?)
+  `).run(design.id, design.image, design.previewImage || null, design.qualityWarning || null, design.pairId || null, design.createdAt);
   if (design.tags && design.tags.length > 0) setDesignTags(design.id, design.tags);
   return getDesign(design.id);
 }
@@ -654,14 +685,14 @@ function getDesignImages(designId) {
   return db.prepare("SELECT * FROM design_images WHERE design_id = ? ORDER BY sortOrder ASC, rowid ASC").all(designId);
 }
 
-function addDesignImage({ design_id, wasserzeichen, typ, bezeichnung, image, previewImage, sichtbar, qualityWarning }) {
+function addDesignImage({ design_id, wasserzeichen, typ, bezeichnung, image, previewImage, sichtbar, qualityWarning, pairId }) {
   const wz = wasserzeichen ? 1 : 0;
   const hg = typImpliesHintergrundVariante(typ) ? 1 : 0;
   const maxOrder = db.prepare("SELECT MAX(sortOrder) AS m FROM design_images WHERE design_id = ?").get(design_id).m || 0;
   const info = db.prepare(`
-    INSERT INTO design_images (design_id, kategorie, wasserzeichen, hintergrundVariante, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, sortOrder, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-  `).run(design_id, kategorieLabel(wz, typ), wz, hg, typ || null, bezeichnung || "", image, previewImage || null, sichtbar ? 1 : 0, qualityWarning || null, maxOrder + 1, new Date().toISOString());
+    INSERT INTO design_images (design_id, kategorie, wasserzeichen, hintergrundVariante, typ, bezeichnung, image, previewImage, sichtbar, ist_hauptbild, qualityWarning, sortOrder, pairId, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+  `).run(design_id, kategorieLabel(wz, typ), wz, hg, typ || null, bezeichnung || "", image, previewImage || null, sichtbar ? 1 : 0, qualityWarning || null, maxOrder + 1, pairId || null, new Date().toISOString());
   return db.prepare("SELECT * FROM design_images WHERE id = ?").get(info.lastInsertRowid);
 }
 
@@ -743,6 +774,62 @@ function deleteDesignImage(imageId) {
   db.prepare("DELETE FROM design_images WHERE id = ?").run(imageId);
   return target;
 }
+
+// --- Kachel-Bearbeitung: beide Zeilen eines Paars (mit + ohne Wasserzeichen)
+// gemeinsam ändern, statt Typ/Bezeichnung zweimal einzutragen (Schritt 8) ---
+
+// Setzt Typ/Bezeichnung für BEIDE Zeilen eines Paars auf einmal. Gibt beide
+// alten Zeilen mit zurück, damit der Aufrufer die sortierte Ablage für beide
+// Varianten nachziehen kann, falls sich Typ oder Bezeichnung geändert haben.
+function setPairEigenschaften(designId, pairId, { typ, bezeichnung }) {
+  const members = db.prepare("SELECT * FROM design_images WHERE design_id = ? AND pairId = ?").all(designId, pairId);
+  if (members.length === 0) return null;
+  const updated = members.map((existing) => {
+    const newTyp = typ === undefined ? existing.typ : typ;
+    const hg = typ === undefined ? existing.hintergrundVariante : (typImpliesHintergrundVariante(typ) ? 1 : 0);
+    const newBezeichnung = bezeichnung === undefined ? existing.bezeichnung : bezeichnung;
+    db.prepare("UPDATE design_images SET hintergrundVariante = ?, typ = ?, bezeichnung = ?, kategorie = ? WHERE id = ?")
+      .run(hg, newTyp, newBezeichnung, kategorieLabel(existing.wasserzeichen, newTyp), existing.id);
+    return db.prepare("SELECT * FROM design_images WHERE id = ?").get(existing.id);
+  });
+  return { old: members, updated };
+}
+
+// Löscht beide Zeilen eines Paars auf einmal. Blockiert wie beim Löschen
+// einer einzelnen Zeile, wenn eine der beiden das Hauptbild ist.
+const deleteDesignImagePair = db.transaction((designId, pairId) => {
+  const members = db.prepare("SELECT * FROM design_images WHERE design_id = ? AND pairId = ?").all(designId, pairId);
+  if (members.length === 0) return null;
+  if (members.some((m) => m.ist_hauptbild)) {
+    const err = new Error("Das Hauptbild kann nicht gelöscht werden - erst ein anderes Bild als Hauptbild festlegen");
+    err.status = 400;
+    throw err;
+  }
+  db.prepare("DELETE FROM design_images WHERE design_id = ? AND pairId = ?").run(designId, pairId);
+  return members;
+});
+
+// Ziehen statt Pfeiltasten (Schritt 8): nimmt die komplette neue Reihenfolge
+// als Liste von pairId entgegen, ein einziger Aufruf statt eines Requests pro
+// Verschiebung. Beide Zeilen eines Paars bekommen dieselbe sortOrder, die
+// öffentliche Seite sieht ohnehin nur die Wasserzeichen-Zeile.
+const reorderDesignImagePairs = db.transaction((designId, orderedPairIds) => {
+  const update = db.prepare("UPDATE design_images SET sortOrder = ? WHERE design_id = ? AND pairId = ?");
+  orderedPairIds.forEach((pairId, i) => update.run(i + 1, designId, pairId));
+  return getDesignImages(designId);
+});
+
+// Mehrfachauswahl: mehrere Bilder auf einmal online/offline schalten statt
+// Checkbox für Checkbox. Beim Online-Schalten (sichtbar=true) zusätzlich
+// serverseitig auf Wasserzeichen-Zeilen beschränkt - keine Massenaktion darf
+// versehentlich eine Verkaufsdatei sichtbar machen (dieselbe Regel wie beim
+// einzelnen Sichtbarkeits-Schalter, siehe setDesignImageVisibility-Route).
+const setDesignImagesVisibilityBulk = db.transaction((imageIds, sichtbar) => {
+  const stmt = sichtbar
+    ? db.prepare("UPDATE design_images SET sichtbar = 1 WHERE id = ? AND wasserzeichen = 1")
+    : db.prepare("UPDATE design_images SET sichtbar = 0 WHERE id = ?");
+  for (const id of imageIds) stmt.run(id);
+});
 
 // --- Feedback-Notizen (Dashboard) ---
 
@@ -1219,6 +1306,10 @@ module.exports = {
   moveDesignImage,
   setHauptbild,
   deleteDesignImage,
+  setPairEigenschaften,
+  deleteDesignImagePair,
+  reorderDesignImagePairs,
+  setDesignImagesVisibilityBulk,
   listFeedback,
   addFeedback,
   setFeedbackStatus,

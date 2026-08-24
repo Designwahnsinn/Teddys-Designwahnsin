@@ -580,6 +580,10 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
     // dagegen als Teilfehler, ein einzelnes schlechtes Bild soll die anderen
     // neun nicht verhindern.
     const mainPair = await persistUploadedImagePair(mainFile);
+    // Verknüpft die Wasserzeichen- und Verkaufsdatei-Zeile dieser Originaldatei
+    // (Schritt 8) - damit lassen sie sich in der Bilder-Verwaltung als eine
+    // Kachel mit gemeinsamem Typ/Bezeichnung bearbeiten.
+    const mainPairId = crypto.randomUUID();
     const design = db.addDesign({
       id: db.nextId(),
       name,
@@ -596,6 +600,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
       previewImage: mainPair.watermarked.previewFilename ? storedPath(mainPair.watermarked.previewDir, mainPair.watermarked.previewFilename) : null,
       online: req.body.online !== undefined,
       qualityWarning: mainPair.qualityWarning,
+      pairId: mainPairId,
       tags,
       createdAt: new Date().toISOString(),
     });
@@ -614,6 +619,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
       image: storedPath(mainPair.clean.dir, mainPair.clean.filename),
       previewImage: mainPair.clean.previewFilename ? storedPath(mainPair.clean.previewDir, mainPair.clean.previewFilename) : null,
       qualityWarning: mainPair.qualityWarning,
+      pairId: mainPairId,
     });
     await sortedUploads.mirrorSorted(
       path.join(dirFor(mainPair.clean.dir), mainPair.clean.filename),
@@ -646,6 +652,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
       }
       const { pair } = result;
       const bezeichnung = `Bild ${i + 2}`;
+      const pairId = crypto.randomUUID();
       db.addDesignImage({
         design_id: design.id,
         wasserzeichen: true,
@@ -655,6 +662,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
         previewImage: pair.watermarked.previewFilename ? storedPath(pair.watermarked.previewDir, pair.watermarked.previewFilename) : null,
         sichtbar: true,
         qualityWarning: pair.qualityWarning,
+        pairId,
       });
       await sortedUploads.mirrorSorted(
         path.join(dirFor(pair.watermarked.dir), pair.watermarked.filename),
@@ -671,6 +679,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
         image: storedPath(pair.clean.dir, pair.clean.filename),
         previewImage: pair.clean.previewFilename ? storedPath(pair.clean.previewDir, pair.clean.previewFilename) : null,
         qualityWarning: pair.qualityWarning,
+        pairId,
       });
       await sortedUploads.mirrorSorted(
         path.join(dirFor(pair.clean.dir), pair.clean.filename),
@@ -858,6 +867,7 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 30
         continue;
       }
       const { pair, typ, imageBezeichnung } = result;
+      const pairId = crypto.randomUUID();
 
       const watermarked = db.addDesignImage({
         design_id: req.params.id,
@@ -867,6 +877,7 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 30
         image: storedPath(pair.watermarked.dir, pair.watermarked.filename),
         previewImage: pair.watermarked.previewFilename ? storedPath(pair.watermarked.previewDir, pair.watermarked.previewFilename) : null,
         qualityWarning: pair.qualityWarning,
+        pairId,
       });
       await sortedUploads.mirrorSorted(
         path.join(dirFor(pair.watermarked.dir), pair.watermarked.filename),
@@ -884,6 +895,7 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 30
         image: storedPath(pair.clean.dir, pair.clean.filename),
         previewImage: pair.clean.previewFilename ? storedPath(pair.clean.previewDir, pair.clean.previewFilename) : null,
         qualityWarning: pair.qualityWarning,
+        pairId,
       });
       await sortedUploads.mirrorSorted(
         path.join(dirFor(pair.clean.dir), pair.clean.filename),
@@ -1048,6 +1060,130 @@ app.delete("/api/admin/designs/:id/images/:imageId", requireAuth, async (req, re
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
   }
+});
+
+// --- Kachel-Bearbeitung (Schritt 8): beide Zeilen eines Paars (mit + ohne
+// Wasserzeichen) gemeinsam ändern, statt Typ/Bezeichnung zweimal einzutragen ---
+
+app.patch("/api/admin/designs/:id/images/pair/:pairId", requireAuth, async (req, res) => {
+  const { typ, bezeichnung } = req.body;
+  if (typ === undefined && bezeichnung === undefined) {
+    return res.status(400).json({ error: "typ oder bezeichnung ist Pflichtfeld" });
+  }
+  if (typ !== undefined && !db.IMAGE_TYP_VALUES.includes(typ)) {
+    return res.status(400).json({ error: "Ungültiger Bildtyp" });
+  }
+  if (bezeichnung !== undefined && typeof bezeichnung !== "string") {
+    return res.status(400).json({ error: "bezeichnung muss Text sein" });
+  }
+  const result = db.setPairEigenschaften(req.params.id, req.params.pairId, {
+    typ,
+    bezeichnung: bezeichnung !== undefined ? bezeichnung.trim() : undefined,
+  });
+  if (!result) return res.status(404).json({ error: "Bild-Paar nicht gefunden" });
+
+  // Sortierte Ablage für jede Variante einzeln nachziehen, falls sich
+  // Kategorie oder Bezeichnung durch die Änderung ergeben haben.
+  for (let i = 0; i < result.old.length; i++) {
+    const previous = result.old[i];
+    const afterUpdate = result.updated[i];
+    if (previous.kategorie !== afterUpdate.kategorie || previous.bezeichnung !== afterUpdate.bezeichnung) {
+      const ext = previous.image.split(".").pop();
+      await sortedUploads.removeSorted(req.params.id, previous.kategorie, previous.bezeichnung, ext);
+      await sortedUploads.mirrorSorted(resolveStoredFilePath(previous.image), req.params.id, afterUpdate.kategorie, afterUpdate.bezeichnung, ext);
+    }
+  }
+  res.json(result.updated);
+});
+
+// Ersetzt beide Varianten eines Paars auf einmal aus einer neuen
+// Originaldatei - wie beim Erst-Upload wird nur einmal verkleinert und
+// daraus beide Web-Ansichten erzeugt (persistUploadedImagePair), statt wie
+// bisher jede Variante einzeln mit einer eigenen Datei ersetzen zu müssen.
+app.post("/api/admin/designs/:id/images/pair/:pairId/replace", requireAuth, upload.single("image"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Bild ist Pflichtfeld" });
+  try {
+    const members = db.getDesignImages(req.params.id).filter((img) => img.pairId === req.params.pairId);
+    if (members.length === 0) return res.status(404).json({ error: "Bild-Paar nicht gefunden" });
+    const existingWatermarked = members.find((m) => m.wasserzeichen);
+    const existingClean = members.find((m) => !m.wasserzeichen);
+
+    const pair = await persistUploadedImagePair(req.file);
+    const replacements = [];
+    if (existingWatermarked) {
+      replacements.push(
+        db.replaceDesignImage(existingWatermarked.id, {
+          image: storedPath(pair.watermarked.dir, pair.watermarked.filename),
+          previewImage: pair.watermarked.previewFilename ? storedPath(pair.watermarked.previewDir, pair.watermarked.previewFilename) : null,
+          qualityWarning: pair.qualityWarning,
+        })
+      );
+    }
+    if (existingClean) {
+      replacements.push(
+        db.replaceDesignImage(existingClean.id, {
+          image: storedPath(pair.clean.dir, pair.clean.filename),
+          previewImage: pair.clean.previewFilename ? storedPath(pair.clean.previewDir, pair.clean.previewFilename) : null,
+          qualityWarning: pair.qualityWarning,
+        })
+      );
+    }
+
+    for (const { old, updated } of replacements) {
+      fs.unlink(resolveStoredFilePath(old.image), () => {});
+      if (old.previewImage) fs.unlink(resolveStoredFilePath(old.previewImage), () => {});
+      await sortedUploads.removeSorted(old.design_id, old.kategorie, old.bezeichnung, old.image.split(".").pop());
+      const variant = updated.wasserzeichen ? pair.watermarked : pair.clean;
+      const ext = variant.filename.split(".").pop();
+      await sortedUploads.mirrorSorted(path.join(dirFor(variant.dir), variant.filename), old.design_id, old.kategorie, old.bezeichnung, ext);
+    }
+
+    res.json(replacements.map((r) => r.updated));
+  } catch (err) {
+    res.status(err.status || 400).json({ error: describeUploadError(err, "Bild-Paar ersetzen") });
+  } finally {
+    if (req.file) await cleanupTempFiles([req.file]);
+  }
+});
+
+app.delete("/api/admin/designs/:id/images/pair/:pairId", requireAuth, async (req, res) => {
+  try {
+    const removed = db.deleteDesignImagePair(req.params.id, req.params.pairId);
+    if (!removed) return res.status(404).json({ error: "Bild-Paar nicht gefunden" });
+    for (const img of removed) {
+      fs.unlink(resolveStoredFilePath(img.image), () => {});
+      if (img.previewImage) fs.unlink(resolveStoredFilePath(img.previewImage), () => {});
+      await sortedUploads.removeSorted(img.design_id, img.kategorie, img.bezeichnung, img.image.split(".").pop());
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+});
+
+// Ziehen statt Pfeiltasten (Schritt 8): nimmt die komplette neue Reihenfolge
+// als Liste von pairId entgegen, ein einziger Aufruf statt eines Requests pro Verschiebung.
+app.post("/api/admin/designs/:id/images/reorder", requireAuth, (req, res) => {
+  if (!db.getDesign(req.params.id)) return res.status(404).json({ error: "Design nicht gefunden" });
+  const { pairIds } = req.body;
+  if (!Array.isArray(pairIds) || pairIds.some((p) => typeof p !== "string")) {
+    return res.status(400).json({ error: "pairIds muss ein Array aus Strings sein" });
+  }
+  res.json(db.reorderDesignImagePairs(req.params.id, pairIds));
+});
+
+// Mehrfachauswahl: mehrere Bilder auf einmal online/offline schalten.
+app.post("/api/admin/designs/:id/images/bulk-visibility", requireAuth, (req, res) => {
+  if (!db.getDesign(req.params.id)) return res.status(404).json({ error: "Design nicht gefunden" });
+  const { imageIds, sichtbar } = req.body;
+  if (!Array.isArray(imageIds) || imageIds.length === 0) {
+    return res.status(400).json({ error: "imageIds muss ein nichtleeres Array sein" });
+  }
+  if (typeof sichtbar !== "boolean") {
+    return res.status(400).json({ error: "sichtbar muss ein boolean sein" });
+  }
+  db.setDesignImagesVisibilityBulk(imageIds, sichtbar);
+  res.json(db.getDesignImages(req.params.id));
 });
 
 // --- Kategorien-Verwaltung ---

@@ -86,6 +86,75 @@ window.addEventListener("beforeunload", (e) => {
   }
 });
 
+// --- Mehrfachauswahl (Massen-Online/Offline) ---
+const bulkBar = document.getElementById("bulk-bar");
+const bulkCount = document.getElementById("bulk-count");
+const bulkOnlineBtn = document.getElementById("bulk-online");
+const bulkOfflineBtn = document.getElementById("bulk-offline");
+const bulkClearBtn = document.getElementById("bulk-clear");
+const selectedIds = new Set();
+
+function updateBulkBar() {
+  bulkBar.hidden = selectedIds.size === 0;
+  bulkCount.textContent = `${selectedIds.size} ausgewählt`;
+}
+
+async function bulkSetVisibility(sichtbar) {
+  await fetch(`/api/admin/designs/${designId}/images/bulk-visibility`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageIds: [...selectedIds], sichtbar }),
+  });
+  selectedIds.clear();
+  updateBulkBar();
+  loadImages();
+}
+bulkOnlineBtn.addEventListener("click", () => bulkSetVisibility(true));
+bulkOfflineBtn.addEventListener("click", () => bulkSetVisibility(false));
+bulkClearBtn.addEventListener("click", () => {
+  selectedIds.clear();
+  updateBulkBar();
+  loadImages();
+});
+
+// --- Ziehen statt Pfeiltasten (Schritt 8) ---
+let draggedCard = null;
+
+function findDropTarget(container, clientX, clientY) {
+  const cards = [...container.querySelectorAll(".image-card:not(.dragging)")];
+  let closest = null;
+  let closestDist = Infinity;
+  for (const card of cards) {
+    const box = card.getBoundingClientRect();
+    const cx = box.left + box.width / 2;
+    const cy = box.top + box.height / 2;
+    const dist = Math.hypot(clientX - cx, clientY - cy);
+    if (dist < closestDist) {
+      closestDist = dist;
+      closest = { card, after: clientX > cx };
+    }
+  }
+  return closest;
+}
+
+gridEl.addEventListener("dragover", (e) => {
+  if (!draggedCard) return;
+  e.preventDefault();
+  const target = findDropTarget(gridEl, e.clientX, e.clientY);
+  if (!target || target.card === draggedCard) return;
+  if (target.after) target.card.after(draggedCard);
+  else target.card.before(draggedCard);
+});
+
+async function persistOrder() {
+  const pairIds = [...gridEl.querySelectorAll(".image-card")].map((c) => c.dataset.pairId);
+  await fetch(`/api/admin/designs/${designId}/images/reorder`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pairIds }),
+  });
+}
+
 async function loadImages() {
   const res = await fetch(`/api/admin/designs/${designId}/images`);
   if (!res.ok) {
@@ -93,47 +162,110 @@ async function loadImages() {
     return;
   }
   const images = await res.json();
+  // Nach pairId gruppieren (Schritt 8) - Wasserzeichen- und Verkaufsdatei-Zeile
+  // derselben Originaldatei werden zusammen als eine Kachel dargestellt.
+  const pairs = new Map();
+  for (const img of images) {
+    const key = img.pairId || `solo-${img.id}`;
+    if (!pairs.has(key)) pairs.set(key, []);
+    pairs.get(key).push(img);
+  }
+  const orderedPairs = [...pairs.entries()].sort((a, b) => {
+    const orderOf = (members) => Math.min(...members.map((m) => m.sortOrder ?? m.id));
+    return orderOf(a[1]) - orderOf(b[1]);
+  });
   gridEl.innerHTML = "";
-  images.forEach((img) => gridEl.appendChild(renderImageCard(img)));
+  orderedPairs.forEach(([pairId, members]) => gridEl.appendChild(renderPairCard(pairId, members)));
 }
 
-function renderImageCard(img) {
-  const isVerkaufsdatei = !img.wasserzeichen;
+function renderPairCard(pairId, members) {
+  const watermarked = members.find((m) => m.wasserzeichen);
+  const clean = members.find((m) => !m.wasserzeichen);
+  const qualityWarning = watermarked?.qualityWarning || clean?.qualityWarning;
 
-  const sichtbarLabel = el("label", { className: "image-visible-toggle" });
-  const sichtbarCheckbox = el("input", {
-    type: "checkbox",
-    checked: !isVerkaufsdatei && !!img.sichtbar,
-    disabled: isVerkaufsdatei,
+  const selectCheckbox = el("input", { type: "checkbox", checked: watermarked ? selectedIds.has(watermarked.id) : false, disabled: !watermarked });
+  selectCheckbox.addEventListener("change", () => {
+    if (!watermarked) return;
+    if (selectCheckbox.checked) selectedIds.add(watermarked.id);
+    else selectedIds.delete(watermarked.id);
+    updateBulkBar();
   });
-  sichtbarCheckbox.addEventListener("change", async () => {
-    await fetch(`/api/admin/designs/${designId}/images/${img.id}`, {
+
+  const thumbs = el("div", { className: "pair-thumbs" }, [
+    watermarked ? el("div", { className: "pair-thumb" }, [el("img", { src: watermarked.image, alt: "Mit Wasserzeichen" }), el("span", { className: "pair-thumb-label", textContent: "Mit Wasserzeichen" })]) : null,
+    clean ? el("div", { className: "pair-thumb" }, [el("img", { src: clean.image, alt: "Verkaufsdatei" }), el("span", { className: "pair-thumb-label", textContent: "🛒 Verkaufsdatei" })]) : null,
+  ].filter(Boolean));
+
+  // img.typ ist bei Bildern von vor Einführung dieses Felds NULL - dann grob
+  // aus dem alten hintergrundVariante-Häkchen ableiten, damit die Auswahl
+  // nicht einfach leer/falsch beim ersten Wert startet.
+  const reference = watermarked || clean;
+  const initialTyp = reference.typ || (reference.hintergrundVariante ? "Hintergrund-Variante" : "Design");
+  const typSelectEl = typSelect("typ", initialTyp);
+  typSelectEl.className = "category-select";
+
+  const savedHint = el("span", { className: "saved-hint", textContent: "Gespeichert ✓", hidden: true });
+  let savedHintTimer = null;
+  function showSavedHint() {
+    savedHint.hidden = false;
+    clearTimeout(savedHintTimer);
+    savedHintTimer = setTimeout(() => (savedHint.hidden = true), 2000);
+  }
+
+  // Patcht Typ/Bezeichnung für BEIDE Varianten auf einmal (Schritt 8) - vorher
+  // musste dieselbe Änderung zweimal eingetragen werden.
+  async function patchPair(extra) {
+    const body = { typ: typSelectEl.value, ...extra };
+    await fetch(`/api/admin/designs/${designId}/images/pair/${pairId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sichtbar: sichtbarCheckbox.checked }),
+      body: JSON.stringify(body),
     });
+    showSavedHint();
+    loadImages();
+  }
+  typSelectEl.addEventListener("change", () => patchPair());
+
+  const bezeichnungInput = el("input", {
+    type: "text",
+    className: "bezeichnung-input",
+    placeholder: "Bezeichnung (z. B. Hintergrundvariante 1)",
+    value: reference.bezeichnung || "",
   });
-  sichtbarLabel.append(
-    sichtbarCheckbox,
-    document.createTextNode(isVerkaufsdatei ? " Nie öffentlich sichtbar (Verkaufsdatei)" : " Sichtbar auf Webseite")
-  );
+  bezeichnungInput.addEventListener("change", () => patchPair({ bezeichnung: bezeichnungInput.value.trim() }));
+
+  const sichtbarLabel = watermarked
+    ? el("label", { className: "image-visible-toggle" })
+    : el("p", { className: "kategorie-verkauf", textContent: "Nur Verkaufsdatei, keine Wasserzeichen-Ansicht vorhanden" });
+  if (watermarked) {
+    const sichtbarCheckbox = el("input", { type: "checkbox", checked: !!watermarked.sichtbar });
+    sichtbarCheckbox.addEventListener("change", async () => {
+      await fetch(`/api/admin/designs/${designId}/images/${watermarked.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sichtbar: sichtbarCheckbox.checked }),
+      });
+    });
+    sichtbarLabel.append(sichtbarCheckbox, document.createTextNode(" Sichtbar auf Webseite"));
+  }
 
   // Die Verkaufsdatei darf nie Hauptbild werden - server-admin.js lehnt das
-  // ohnehin hart ab (siehe /hauptbild-Route), hier zusätzlich schon gar nicht erst anbieten.
-  const hauptbildBtn = isVerkaufsdatei
-    ? null
-    : el("button", {
+  // ohnehin hart ab, hier zusätzlich schon gar nicht erst anbieten.
+  const hauptbildBtn = watermarked
+    ? el("button", {
         className: "hauptbild-btn",
-        textContent: img.ist_hauptbild ? "★ Hauptbild" : "Als Hauptbild festlegen",
-        disabled: !!img.ist_hauptbild,
-      });
+        textContent: watermarked.ist_hauptbild ? "★ Hauptbild" : "Als Hauptbild festlegen",
+        disabled: !!watermarked.ist_hauptbild,
+      })
+    : null;
   if (hauptbildBtn) {
     hauptbildBtn.addEventListener("click", async () => {
-      await fetch(`/api/admin/designs/${designId}/images/${img.id}/hauptbild`, { method: "POST" });
+      await fetch(`/api/admin/designs/${designId}/images/${watermarked.id}/hauptbild`, { method: "POST" });
       loadImages();
     });
   }
 
+  // Ersetzt beide Varianten auf einmal aus einer neuen Originaldatei.
   const replaceInput = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp,image/avif", hidden: true });
   const replaceBtn = el("button", { className: "edit-btn", textContent: "Datei ersetzen" });
   replaceBtn.addEventListener("click", () => replaceInput.click());
@@ -143,7 +275,7 @@ function renderImageCard(img) {
     formData.append("image", replaceInput.files[0]);
     replaceBtn.disabled = true;
     replaceBtn.textContent = "Wird ersetzt …";
-    const res = await fetch(`/api/admin/designs/${designId}/images/${img.id}/replace`, { method: "POST", body: formData });
+    const res = await fetch(`/api/admin/designs/${designId}/images/pair/${pairId}/replace`, { method: "POST", body: formData });
     if (res.ok) {
       loadImages();
     } else {
@@ -154,108 +286,42 @@ function renderImageCard(img) {
     }
   });
 
-  const moveUpBtn = el("button", { className: "move-btn", textContent: "↑", title: "Nach oben verschieben" });
-  moveUpBtn.addEventListener("click", async () => {
-    await fetch(`/api/admin/designs/${designId}/images/${img.id}/move`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ direction: "up" }),
-    });
-    loadImages();
-  });
-
-  const moveDownBtn = el("button", { className: "move-btn", textContent: "↓", title: "Nach unten verschieben" });
-  moveDownBtn.addEventListener("click", async () => {
-    await fetch(`/api/admin/designs/${designId}/images/${img.id}/move`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ direction: "down" }),
-    });
-    loadImages();
-  });
-
   const deleteBtn = el("button", { className: "delete-btn", textContent: "Löschen" });
-  if (img.ist_hauptbild) {
+  if (watermarked?.ist_hauptbild) {
     deleteBtn.disabled = true;
     deleteBtn.title = "Hauptbild kann nicht gelöscht werden";
   } else {
     deleteBtn.addEventListener("click", async () => {
-      // Schritt 7: klar sagen, was durch den Klick tatsächlich verschwindet -
-      // nicht nur diese eine Ansicht, sondern die dazugehörige zweite Variante
-      // (mit/ohne Wasserzeichen) und die Kopie in der sortierten NAS-Ablage.
-      const partner = isVerkaufsdatei ? "die zugehörige Wasserzeichen-Ansicht" : "die zugehörige Verkaufsdatei";
-      if (!confirm(`Dieses Bild wirklich löschen? Nicht ${partner} - nur diese eine Zeile. Die Kopie in der sortierten Ablage (NAS) wird ebenfalls entfernt.`)) return;
-      const res = await fetch(`/api/admin/designs/${designId}/images/${img.id}`, { method: "DELETE" });
+      if (!confirm("Beide Varianten (mit und ohne Wasserzeichen) wirklich löschen? Die Kopien in der sortierten Ablage (NAS) werden ebenfalls entfernt.")) return;
+      const res = await fetch(`/api/admin/designs/${designId}/images/pair/${pairId}`, { method: "DELETE" });
       if (res.ok) loadImages();
     });
   }
 
-  const wasserzeichenSelectEl = el("select", { className: "category-select" });
-  wasserzeichenSelectEl.appendChild(el("option", { value: "true", textContent: "Mit Wasserzeichen", selected: !!img.wasserzeichen }));
-  wasserzeichenSelectEl.appendChild(el("option", { value: "false", textContent: "Ohne Wasserzeichen", selected: !img.wasserzeichen }));
-
-  // img.typ ist bei Bildern von vor Einführung dieses Felds NULL - dann grob
-  // aus dem alten hintergrundVariante-Häkchen ableiten, damit die Auswahl
-  // nicht einfach leer/falsch beim ersten Wert startet.
-  const initialTyp = img.typ || (img.hintergrundVariante ? "Hintergrund-Variante" : "Design");
-  const typSelectEl = el("select", { className: "category-select" });
-  IMAGE_TYP_VALUES.forEach((t) => {
-    typSelectEl.appendChild(el("option", { value: t, textContent: t, selected: t === initialTyp }));
-  });
-
-  const savedHint = el("span", { className: "saved-hint", textContent: "Gespeichert ✓", hidden: true });
-  let savedHintTimer = null;
-  function showSavedHint() {
-    savedHint.hidden = false;
-    clearTimeout(savedHintTimer);
-    savedHintTimer = setTimeout(() => (savedHint.hidden = true), 2000);
-  }
-
-  async function patchEigenschaften(extra) {
-    const body = {
-      wasserzeichen: wasserzeichenSelectEl.value === "true",
-      typ: typSelectEl.value,
-      ...extra,
-    };
-    // Verkaufsdatei darf nie als sichtbar markiert bleiben - direkt mit korrigieren.
-    if (!body.wasserzeichen) body.sichtbar = false;
-    await fetch(`/api/admin/designs/${designId}/images/${img.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    showSavedHint();
-    loadImages();
-  }
-  wasserzeichenSelectEl.addEventListener("change", () => patchEigenschaften());
-  typSelectEl.addEventListener("change", () => patchEigenschaften());
-
-  // Freihändige Bezeichnung statt automatisch durchnummerierter Namen
-  // ("Bild 2", "Bild 3") - Mitarbeitende sollen z.B. "Hintergrundvariante 4"
-  // frei vergeben können, damit die Auswahl in der Bestellung eindeutig ist.
-  const bezeichnungInput = el("input", {
-    type: "text",
-    className: "bezeichnung-input",
-    placeholder: "Bezeichnung (z. B. Hintergrundvariante 1)",
-    value: img.bezeichnung || "",
-  });
-  bezeichnungInput.addEventListener("change", () => patchEigenschaften({ bezeichnung: bezeichnungInput.value.trim() }));
-
-  const verkaufHinweis = isVerkaufsdatei
-    ? el("p", { className: "kategorie-verkauf", textContent: "🛒 Verkaufsdatei" })
-    : null;
-
-  return el("div", { className: "image-card" }, [
-    el("img", { src: img.image, alt: img.bezeichnung || img.kategorie }),
-    wasserzeichenSelectEl,
+  const card = el("div", { className: "image-card" }, [
+    el("div", { className: "image-card-head" }, [selectCheckbox]),
+    thumbs,
     typSelectEl,
-    verkaufHinweis,
     bezeichnungInput,
     savedHint,
-    img.qualityWarning ? el("p", { className: "quality-warning", textContent: `⚠️ ${img.qualityWarning}` }) : null,
+    qualityWarning ? el("p", { className: "quality-warning", textContent: `⚠️ ${qualityWarning}` }) : null,
     sichtbarLabel,
-    el("div", { className: "card-actions" }, [moveUpBtn, moveDownBtn, hauptbildBtn, replaceBtn, replaceInput, deleteBtn].filter(Boolean)),
+    el("div", { className: "card-actions" }, [hauptbildBtn, replaceBtn, replaceInput, deleteBtn].filter(Boolean)),
   ].filter(Boolean));
+
+  card.draggable = true;
+  card.dataset.pairId = pairId;
+  card.addEventListener("dragstart", () => {
+    draggedCard = card;
+    card.classList.add("dragging");
+  });
+  card.addEventListener("dragend", () => {
+    card.classList.remove("dragging");
+    draggedCard = null;
+    persistOrder();
+  });
+
+  return card;
 }
 
 const uploadSubmitBtn = uploadForm.querySelector('button[type="submit"]');
