@@ -7,7 +7,7 @@ const multer = require("multer");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const FileType = require("file-type");
-const { imageSize } = require("image-size");
+const { imageSizeFromFile } = require("image-size/fromFile");
 const sharp = require("sharp");
 const db = require("./db");
 const sortedUploads = require("./sorted-uploads");
@@ -30,23 +30,51 @@ if (!ADMIN_PASSWORD || !SESSION_SECRET) {
 const UPLOADS_DIR = path.join(__dirname, "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
+// Verkaufsdateien (Original ohne Wasserzeichen + deren Web-Vorschau) landen
+// NICHT in uploads/ - dieser Ordner wird von beiden Servern per
+// express.static ohne Anmeldung ausgeliefert (siehe server-public.js). Ein
+// erratener/weitergegebener UUID-Dateiname wäre sonst der gesamte Schutz -
+// hier liegen sie stattdessen in einem Ordner, der nur über eine
+// authentifizierte Route (/sales/:filename unten, bzw. das Order-Portal mit
+// gültigem Bestell-Token) erreichbar ist.
+const SALES_DIR = path.join(__dirname, "data", "sales");
+if (!fs.existsSync(SALES_DIR)) fs.mkdirSync(SALES_DIR, { recursive: true });
+
+// Zwischenspeicher für multer.diskStorage() - bewusst NICHT unter uploads/,
+// aus demselben Grund wie SALES_DIR. Dateien landen hier nur für die Dauer
+// der Verarbeitung eines Requests und werden danach in jedem Fall gelöscht
+// (siehe cleanupTempFiles), auch bei Fehlern.
+const TMP_DIR = path.join(__dirname, "data", "tmp");
+if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
+
+// Für ein Bild in design_images.image/previewImage gespeicherte Pfade wie
+// "/uploads/<name>" oder "/sales/<name>" auf den tatsächlichen Ordner auf der
+// Platte auflösen - zentral an einer Stelle, damit Download/Lösch-Routen nicht
+// von Hand zwischen beiden Ordnern unterscheiden müssen.
+function resolveStoredFilePath(imagePathValue) {
+  const name = path.basename(imagePathValue);
+  return imagePathValue.startsWith("/sales/") ? path.join(SALES_DIR, name) : path.join(UPLOADS_DIR, name);
+}
+
 // Einmalige Migration: bestehende Design-Bilder (von vor Einführung der
 // sortierten Ablage) in die Ordnerstruktur uploads-sorted/<Design-ID>/<Kategorie>/
 // nachziehen. Ein Design gilt als bereits migriert, sobald sein Ordner existiert.
-function backfillSortedUploads() {
+async function backfillSortedUploads() {
   for (const design of db.getDesigns()) {
     const designDir = path.join(sortedUploads.SORTED_DIR, design.id);
     if (fs.existsSync(designDir)) continue;
     for (const img of db.getDesignImages(design.id)) {
-      const localPath = path.join(UPLOADS_DIR, path.basename(img.image));
+      const localPath = resolveStoredFilePath(img.image);
       const ext = img.image.split(".").pop();
       if (fs.existsSync(localPath)) {
-        sortedUploads.mirrorSorted(localPath, design.id, img.kategorie, img.bezeichnung, ext);
+        await sortedUploads.mirrorSorted(localPath, design.id, img.kategorie, img.bezeichnung, ext);
       }
     }
   }
 }
-backfillSortedUploads();
+// Einmalige Migration beim Start - läuft im Hintergrund, muss den Serverstart
+// nicht blockieren (mirrorSorted fängt eigene Fehler bereits intern ab).
+backfillSortedUploads().catch((err) => console.error("Migration der sortierten Ablage fehlgeschlagen:", err));
 
 const STATUS_VALUES = ["verfügbar", "exklusiv", "verkauft"];
 const ALLOWED_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp", "image/avif"];
@@ -86,6 +114,17 @@ app.get("/robots.txt", (req, res) => res.type("text/plain").send("User-agent: *\
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(UPLOADS_DIR));
+
+// Verkaufsdateien (siehe SALES_DIR) sind bewusst NICHT über express.static
+// erreichbar - nur einzeln über diese Route, die eine gültige Admin-Session
+// verlangt. Dient in der Bilder-Verwaltung als <img src> für die Vorschau der
+// Verkaufsdatei-Zeile. Kunden bekommen Verkaufsdateien ausschließlich über die
+// separate, Token-geprüfte Order-Portal-Download-Route (siehe weiter unten).
+app.get("/sales/:filename", requireAuth, (req, res) => {
+  const target = path.join(SALES_DIR, path.basename(req.params.filename));
+  if (!fs.existsSync(target)) return res.status(404).end();
+  res.sendFile(target);
+});
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -150,10 +189,16 @@ const ORDER_PORTAL_TERMS_TEXT = `
 Copyright, Weiterverkaufsverbot, Haftungsausschluss für Druckfehler]
 `.trim();
 
-// Dateien landen erst im Speicher, damit die Signatur geprüft werden kann,
-// bevor irgendetwas auf Platte geschrieben wird (MIME-Type allein ist spoofbar).
+// Dateien landen zuerst einzeln auf der Platte (TMP_DIR) statt gesammelt im
+// Arbeitsspeicher - bei bis zu 30 Dateien à 20 MB Canva-Exporten in
+// Druckauflösung konnte memoryStorage den Prozess auf dem Server abschießen.
+// Die Signaturprüfung (FileType.fromFile, siehe unten) passiert weiterhin vor
+// jeder Weiterverarbeitung, MIME-Type allein bleibt spoofbar.
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: TMP_DIR,
+    filename: (req, file, cb) => cb(null, crypto.randomUUID()),
+  }),
   // 20 MB pro Datei - bei der geforderten Mindestauflösung (~2362x2362px)
   // sind hochauflösende PNGs mit Transparenz schnell deutlich größer als
   // die ursprünglichen 8 MB.
@@ -164,46 +209,62 @@ const upload = multer({
   },
 });
 
+// Löscht die temporären Originaldateien eines Requests zuverlässig, auch
+// wenn die Verarbeitung fehlgeschlagen ist - sonst würde data/tmp mit der
+// Zeit volllaufen. Einzeln statt sammelnd, damit ein fehlendes File (schon
+// verschoben/gelöscht) den Rest nicht verhindert.
+async function cleanupTempFiles(files) {
+  await Promise.all((files || []).map((f) => fs.promises.unlink(f.path).catch(() => {})));
+}
+
 // Empfohlene Mindestauflösung für gestochen scharfen Druck: 20x20cm bei
 // 300dpi (Standard-Druckgröße laut Nutzer) = ca. 2362x2362 Pixel.
 const MIN_PRINT_DIMENSION_PX = 2362;
 
-function checkImageQuality(buffer) {
-  try {
-    const { width, height } = imageSize(buffer);
-    if (width < MIN_PRINT_DIMENSION_PX || height < MIN_PRINT_DIMENSION_PX) {
-      return `Auflösung nur ${width}×${height}px - für gestochen scharfen Druck (20×20cm bei 300dpi) werden mind. ${MIN_PRINT_DIMENSION_PX}×${MIN_PRINT_DIMENSION_PX}px empfohlen.`;
-    }
-    return null;
-  } catch {
-    return null; // Auflösung konnte nicht ermittelt werden - Upload trotzdem zulassen
+function checkImageQuality(width, height) {
+  if (width < MIN_PRINT_DIMENSION_PX || height < MIN_PRINT_DIMENSION_PX) {
+    return `Auflösung nur ${width}×${height}px - für gestochen scharfen Druck (20×20cm bei 300dpi) werden mind. ${MIN_PRINT_DIMENSION_PX}×${MIN_PRINT_DIMENSION_PX}px empfohlen.`;
   }
+  return null;
 }
 
 // Canva-Exporte kommen oft mit mehreren tausend Pixeln Kantenlänge, weil sie
 // auf die Druckauflösung (min. 2362x2362px, siehe MIN_PRINT_DIMENSION_PX)
 // ausgelegt sind - für die Website-Anzeige unnötig groß und langsam. Deshalb
 // zusätzlich zum unangetasteten Original (Druck-/Verkaufsdatei) ein
-// verkleinertes WebP für die öffentliche Seite erzeugen.
+// verkleinertes WebP für die Web-Ansichten.
 const WEB_PREVIEW_MAX_DIMENSION_PX = 1600;
 const WEB_PREVIEW_QUALITY = 82;
 
-async function generatePreviewImage(buffer) {
-  try {
-    const previewFilename = `${crypto.randomUUID()}-preview.webp`;
-    await sharp(buffer)
-      .resize({
-        width: WEB_PREVIEW_MAX_DIMENSION_PX,
-        height: WEB_PREVIEW_MAX_DIMENSION_PX,
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .webp({ quality: WEB_PREVIEW_QUALITY })
-      .toFile(path.join(UPLOADS_DIR, previewFilename));
-    return previewFilename;
-  } catch {
-    return null; // Vorschau ist ein "nice to have" - Original bleibt in jedem Fall nutzbar
+// Ein Bild kann bei kleiner Dateigröße riesige Pixelmaße haben - beim
+// Dekodieren entstünde daraus ohne Grenze ein sehr großer Speicherbedarf.
+// Deutlich über der höchsten in Canva real vorkommenden Exportgröße
+// (2362x2362px Pflicht-Mindestmaß, meist nicht extrem viel größer), mit
+// Reserve nach oben. Bilder, die daran scheitern, laufen in den regulären
+// Teilfehler-Pfad (siehe persistUploadedImagePair), nicht in einen Absturz.
+const SHARP_MAX_INPUT_PIXELS = 120_000_000; // ca. 11000×11000px
+
+// Anzahl gleichzeitig verarbeiteter Dateien pro Upload-Request - alle 10
+// Varianten parallel würde den Speichergewinn von diskStorage wieder
+// zunichtemachen, streng nacheinander liefe unnötig lange. sharp.concurrency
+// passend begrenzen, sonst startet sharp intern zusätzliche Threads.
+const UPLOAD_CONCURRENCY = 2;
+sharp.concurrency(UPLOAD_CONCURRENCY);
+
+// Verarbeitet eine Liste von Elementen mit fester, begrenzter Parallelität
+// und sammelt die Ergebnisse INDIZIERT ein (nicht in Abschlussreihenfolge) -
+// wichtig, weil sortOrder und Bezeichnungen von der Upload-Reihenfolge abhängen.
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 // Festes Wasserzeichen-Bild (Maskottchen + Schriftzug, transparenter
@@ -215,56 +276,122 @@ async function generatePreviewImage(buffer) {
 const WATERMARK_PATH = path.join(__dirname, "assets", "watermark.png");
 const WATERMARK_SIZE_RATIO = 0.5; // Kantenlänge relativ zur kürzeren Bildseite
 
-async function applyWatermark(buffer) {
-  // Erst auf Web-Größe verkleinern, dann Wasserzeichen auflegen - die
-  // "Mit Wasserzeichen"-Ansicht ist nie die Verkaufsdatei und braucht keine
-  // Druckauflösung.
-  const resized = await sharp(buffer)
-    .resize({
-      width: WEB_PREVIEW_MAX_DIMENSION_PX,
-      height: WEB_PREVIEW_MAX_DIMENSION_PX,
-      fit: "inside",
-      withoutEnlargement: true,
-    })
-    .toBuffer();
-  const { width, height } = await sharp(resized).metadata();
+// Legt Wasserzeichen auf eine bereits auf Web-Größe verkleinerte Version -
+// die "Mit Wasserzeichen"-Ansicht ist nie die Verkaufsdatei und braucht keine
+// Druckauflösung, das Verkleinern passiert deshalb vorher genau einmal beim
+// Aufrufer (siehe persistUploadedImagePair), nicht hier erneut.
+async function applyWatermarkToResizedBuffer(resizedBuffer) {
+  const { width, height } = await sharp(resizedBuffer).metadata();
   const markSize = Math.max(1, Math.round(Math.min(width, height) * WATERMARK_SIZE_RATIO));
   const mark = await sharp(WATERMARK_PATH).resize(markSize, markSize, { fit: "inside" }).toBuffer();
-
-  return sharp(resized).composite([{ input: mark, gravity: "center" }]).webp({ quality: WEB_PREVIEW_QUALITY }).toBuffer();
+  return sharp(resizedBuffer).composite([{ input: mark, gravity: "center" }]).webp({ quality: WEB_PREVIEW_QUALITY }).toBuffer();
 }
 
-// watermark:true erzeugt automatisch die gekachelte "Mit Wasserzeichen"-
-// Ansicht statt die Originaldatei unverändert zu speichern.
+// "sales" (geschützt, siehe SALES_DIR) oder "uploads" (öffentlich) -> den in
+// design_images.image/previewImage gespeicherten Pfad-String bauen bzw. auf
+// den tatsächlichen Ordner auf der Platte auflösen.
+function storedPath(dir, filename) {
+  return dir === "sales" ? `/sales/${filename}` : `/uploads/${filename}`;
+}
+function dirFor(dir) {
+  return dir === "sales" ? SALES_DIR : UPLOADS_DIR;
+}
+
+// Für Antworten/Logs: nie den vollen, potenziell sehr langen Original-
+// Dateinamen einer Nutzereingabe ungekürzt weiterreichen.
+function truncateFileName(name) {
+  return String(name || "").slice(0, 200);
+}
+
+// 6.3: Fehlermeldungen an den Client dürfen nur bekannte, selbst formulierte
+// Texte enthalten - keine Dateipfade, Sharp-/Systemfehler oder Stacktraces.
+// Eigene Fehler (err.status gesetzt, siehe persistUploadedImage*) sind dafür
+// vorgesehen und dürfen durch; alles andere wird nur serverseitig geloggt.
+function describeUploadError(err, context) {
+  if (err && err.status) return err.message;
+  console.error(`Unerwarteter Fehler bei der Bildverarbeitung${context ? ` (${context})` : ""}:`, err);
+  return "Die Datei konnte nicht verarbeitet werden.";
+}
+
+// Einzelnes Ersatzbild (Route .../replace) - anders als beim Erst-Upload gibt
+// es hier nur eine Zielvariante (die zu ersetzende Zeile war entweder schon
+// die Wasserzeichen- oder die Verkaufsdatei-Zeile), der Aufwand einer
+// gemeinsamen Verkleinerung für zwei Varianten lohnt hier nicht.
 async function persistUploadedImage(file, { watermark = false } = {}) {
-  const detected = await FileType.fromBuffer(file.buffer);
+  const detected = await FileType.fromFile(file.path);
   if (!detected || !ALLOWED_IMAGE_MIME_TYPES.includes(detected.mime)) {
     const err = new Error("Datei-Inhalt entspricht keinem erlaubten Bildformat");
     err.status = 400;
     throw err;
   }
-  const qualityWarning = checkImageQuality(file.buffer);
+  const { width, height } = await imageSizeFromFile(file.path);
+  const qualityWarning = checkImageQuality(width, height);
+
   if (watermark) {
-    const watermarkedBuffer = await applyWatermark(file.buffer);
+    const resizedBuffer = await sharp(file.path, { limitInputPixels: SHARP_MAX_INPUT_PIXELS })
+      .resize({ width: WEB_PREVIEW_MAX_DIMENSION_PX, height: WEB_PREVIEW_MAX_DIMENSION_PX, fit: "inside", withoutEnlargement: true })
+      .toBuffer();
     const filename = `${crypto.randomUUID()}.webp`;
-    fs.writeFileSync(path.join(UPLOADS_DIR, filename), watermarkedBuffer);
-    const previewFilename = await generatePreviewImage(watermarkedBuffer);
-    return { filename, previewFilename, mime: "image/webp", qualityWarning };
+    await fs.promises.writeFile(path.join(UPLOADS_DIR, filename), await applyWatermarkToResizedBuffer(resizedBuffer));
+    return { filename, dir: "uploads", previewFilename: null, previewDir: null, mime: "image/webp", qualityWarning };
   }
+
   const filename = `${crypto.randomUUID()}.${detected.ext}`;
-  fs.writeFileSync(path.join(UPLOADS_DIR, filename), file.buffer);
-  const previewFilename = await generatePreviewImage(file.buffer);
-  return { filename, previewFilename, mime: detected.mime, qualityWarning };
+  await fs.promises.copyFile(file.path, path.join(SALES_DIR, filename));
+  const previewFilename = `${crypto.randomUUID()}-preview.webp`;
+  const previewBuffer = await sharp(file.path, { limitInputPixels: SHARP_MAX_INPUT_PIXELS })
+    .resize({ width: WEB_PREVIEW_MAX_DIMENSION_PX, height: WEB_PREVIEW_MAX_DIMENSION_PX, fit: "inside", withoutEnlargement: true })
+    .webp({ quality: WEB_PREVIEW_QUALITY })
+    .toBuffer();
+  await fs.promises.writeFile(path.join(SALES_DIR, previewFilename), previewBuffer);
+  return { filename, dir: "sales", previewFilename, previewDir: "sales", mime: detected.mime, qualityWarning };
 }
 
 // Erzeugt aus einer einzigen hochgeladenen Originaldatei beide Varianten auf
-// einmal: die unangetastete Verkaufsdatei ("Ohne Wasserzeichen") und die
-// automatisch gekachelte öffentliche Ansicht ("Mit Wasserzeichen") - Ersatz
-// für den bisherigen doppelten manuellen Upload.
+// einmal: die unangetastete Verkaufsdatei ("Ohne Wasserzeichen", landet
+// geschützt in SALES_DIR - siehe 6.1) und die automatisch gekachelte
+// öffentliche Ansicht ("Mit Wasserzeichen", landet in UPLOADS_DIR) - Ersatz
+// für den bisherigen doppelten manuellen Upload. Format/Auflösung werden nur
+// einmal geprüft und nur einmal auf Web-Größe verkleinert (nicht wie früher
+// pro Ansicht erneut), aus dem Ergebnis werden beide Web-Ansichten kodiert.
 async function persistUploadedImagePair(file) {
-  const clean = await persistUploadedImage(file, { watermark: false });
-  const watermarked = await persistUploadedImage(file, { watermark: true });
-  return { clean, watermarked, qualityWarning: clean.qualityWarning };
+  const detected = await FileType.fromFile(file.path);
+  if (!detected || !ALLOWED_IMAGE_MIME_TYPES.includes(detected.mime)) {
+    const err = new Error("Datei-Inhalt entspricht keinem erlaubten Bildformat");
+    err.status = 400;
+    throw err;
+  }
+  const { width, height } = await imageSizeFromFile(file.path);
+  const qualityWarning = checkImageQuality(width, height);
+
+  const cleanFilename = `${crypto.randomUUID()}.${detected.ext}`;
+  await fs.promises.copyFile(file.path, path.join(SALES_DIR, cleanFilename));
+
+  const resizedBuffer = await sharp(file.path, { limitInputPixels: SHARP_MAX_INPUT_PIXELS })
+    .resize({ width: WEB_PREVIEW_MAX_DIMENSION_PX, height: WEB_PREVIEW_MAX_DIMENSION_PX, fit: "inside", withoutEnlargement: true })
+    .toBuffer();
+
+  // Web-Vorschau des Originals (ohne Wasserzeichen!) - nur fürs schnelle
+  // Laden in der Bilder-Verwaltung gedacht, deshalb ebenfalls im geschützten
+  // sales-Ordner, nie in uploads/ (sonst wäre 6.1 wirkungslos).
+  const cleanPreviewFilename = `${crypto.randomUUID()}-preview.webp`;
+  await fs.promises.writeFile(
+    path.join(SALES_DIR, cleanPreviewFilename),
+    await sharp(resizedBuffer).webp({ quality: WEB_PREVIEW_QUALITY }).toBuffer()
+  );
+
+  // Kein separates Preview für die Wasserzeichen-Variante - image hat schon Webgröße.
+  const watermarkedFilename = `${crypto.randomUUID()}.webp`;
+  await fs.promises.writeFile(
+    path.join(UPLOADS_DIR, watermarkedFilename),
+    await applyWatermarkToResizedBuffer(resizedBuffer)
+  );
+
+  return {
+    clean: { filename: cleanFilename, dir: "sales", previewFilename: cleanPreviewFilename, previewDir: "sales", mime: detected.mime, qualityWarning },
+    watermarked: { filename: watermarkedFilename, dir: "uploads", previewFilename: null, previewDir: null, mime: "image/webp", qualityWarning },
+    qualityWarning,
+  };
 }
 
 // Rechnung/Angebot dürfen zusätzlich zu Bildern auch als PDF hochgeladen
@@ -420,6 +547,10 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
     // Staff lädt nur noch die reine Originaldatei hoch (ohne Wasserzeichen) -
     // die öffentliche "Mit Wasserzeichen"-Ansicht wird automatisch daraus
     // erzeugt (persistUploadedImagePair), kein zweiter manueller Export nötig.
+    // Das Hauptbild entscheidet über Erfolg/Misserfolg des gesamten Requests
+    // (ohne gültiges Hauptbild kein Design) - weitere Dateien unten laufen
+    // dagegen als Teilfehler, ein einzelnes schlechtes Bild soll die anderen
+    // neun nicht verhindern.
     const mainPair = await persistUploadedImagePair(mainFile);
     const design = db.addDesign({
       id: db.nextId(),
@@ -433,15 +564,15 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
       kaufLink: kaufLink || "",
       driveLink: driveLink || "",
       instagramLink: instagramLink || "",
-      image: `/uploads/${mainPair.watermarked.filename}`,
-      previewImage: mainPair.watermarked.previewFilename ? `/uploads/${mainPair.watermarked.previewFilename}` : null,
+      image: storedPath(mainPair.watermarked.dir, mainPair.watermarked.filename),
+      previewImage: mainPair.watermarked.previewFilename ? storedPath(mainPair.watermarked.previewDir, mainPair.watermarked.previewFilename) : null,
       online: req.body.online !== undefined,
       qualityWarning: mainPair.qualityWarning,
       tags,
       createdAt: new Date().toISOString(),
     });
-    sortedUploads.mirrorSorted(
-      path.join(UPLOADS_DIR, mainPair.watermarked.filename),
+    await sortedUploads.mirrorSorted(
+      path.join(dirFor(mainPair.watermarked.dir), mainPair.watermarked.filename),
       design.id,
       "Mit Wasserzeichen",
       "Hauptbild",
@@ -452,12 +583,12 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
       wasserzeichen: false,
       typ: "Design",
       bezeichnung: "Hauptbild",
-      image: `/uploads/${mainPair.clean.filename}`,
-      previewImage: mainPair.clean.previewFilename ? `/uploads/${mainPair.clean.previewFilename}` : null,
+      image: storedPath(mainPair.clean.dir, mainPair.clean.filename),
+      previewImage: mainPair.clean.previewFilename ? storedPath(mainPair.clean.previewDir, mainPair.clean.previewFilename) : null,
       qualityWarning: mainPair.qualityWarning,
     });
-    sortedUploads.mirrorSorted(
-      path.join(UPLOADS_DIR, mainPair.clean.filename),
+    await sortedUploads.mirrorSorted(
+      path.join(dirFor(mainPair.clean.dir), mainPair.clean.filename),
       design.id,
       "Ohne Wasserzeichen",
       "Hauptbild",
@@ -465,48 +596,55 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
     );
 
     const qualityWarnings = mainPair.qualityWarning ? [mainPair.qualityWarning] : [];
-    for (const [i, file] of extraFiles.entries()) {
+    const fehlgeschlagen = [];
+    await mapWithConcurrency(extraFiles, UPLOAD_CONCURRENCY, async (file, i) => {
       const bezeichnung = `Bild ${i + 2}`;
-      const pair = await persistUploadedImagePair(file);
-      db.addDesignImage({
-        design_id: design.id,
-        wasserzeichen: true,
-        typ: "Design",
-        bezeichnung,
-        image: `/uploads/${pair.watermarked.filename}`,
-        previewImage: pair.watermarked.previewFilename ? `/uploads/${pair.watermarked.previewFilename}` : null,
-        sichtbar: true,
-        qualityWarning: pair.qualityWarning,
-      });
-      sortedUploads.mirrorSorted(
-        path.join(UPLOADS_DIR, pair.watermarked.filename),
-        design.id,
-        "Mit Wasserzeichen",
-        bezeichnung,
-        pair.watermarked.filename.split(".").pop()
-      );
-      db.addDesignImage({
-        design_id: design.id,
-        wasserzeichen: false,
-        typ: "Design",
-        bezeichnung,
-        image: `/uploads/${pair.clean.filename}`,
-        previewImage: pair.clean.previewFilename ? `/uploads/${pair.clean.previewFilename}` : null,
-        qualityWarning: pair.qualityWarning,
-      });
-      sortedUploads.mirrorSorted(
-        path.join(UPLOADS_DIR, pair.clean.filename),
-        design.id,
-        "Ohne Wasserzeichen",
-        bezeichnung,
-        pair.clean.filename.split(".").pop()
-      );
-      if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
-    }
+      try {
+        const pair = await persistUploadedImagePair(file);
+        db.addDesignImage({
+          design_id: design.id,
+          wasserzeichen: true,
+          typ: "Design",
+          bezeichnung,
+          image: storedPath(pair.watermarked.dir, pair.watermarked.filename),
+          previewImage: pair.watermarked.previewFilename ? storedPath(pair.watermarked.previewDir, pair.watermarked.previewFilename) : null,
+          sichtbar: true,
+          qualityWarning: pair.qualityWarning,
+        });
+        await sortedUploads.mirrorSorted(
+          path.join(dirFor(pair.watermarked.dir), pair.watermarked.filename),
+          design.id,
+          "Mit Wasserzeichen",
+          bezeichnung,
+          pair.watermarked.filename.split(".").pop()
+        );
+        db.addDesignImage({
+          design_id: design.id,
+          wasserzeichen: false,
+          typ: "Design",
+          bezeichnung,
+          image: storedPath(pair.clean.dir, pair.clean.filename),
+          previewImage: pair.clean.previewFilename ? storedPath(pair.clean.previewDir, pair.clean.previewFilename) : null,
+          qualityWarning: pair.qualityWarning,
+        });
+        await sortedUploads.mirrorSorted(
+          path.join(dirFor(pair.clean.dir), pair.clean.filename),
+          design.id,
+          "Ohne Wasserzeichen",
+          bezeichnung,
+          pair.clean.filename.split(".").pop()
+        );
+        if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
+      } catch (err) {
+        fehlgeschlagen.push({ dateiname: truncateFileName(file.originalname), grund: describeUploadError(err, "Design anlegen") });
+      }
+    });
 
-    res.status(201).json({ ...design, qualityWarnings });
+    res.status(201).json({ ...design, qualityWarnings, fehlgeschlagen });
   } catch (err) {
-    res.status(err.status || 400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: describeUploadError(err, "Hauptbild") });
+  } finally {
+    await cleanupTempFiles(files);
   }
 });
 
@@ -550,14 +688,14 @@ app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
   res.json(updated);
 });
 
-app.delete("/api/admin/designs/:id", requireAuth, (req, res) => {
+app.delete("/api/admin/designs/:id", requireAuth, async (req, res) => {
   const removed = db.deleteDesign(req.params.id);
   if (!removed) return res.status(404).json({ error: "Nicht gefunden" });
 
   for (const img of removed.allImagePaths) {
-    fs.unlink(path.join(UPLOADS_DIR, path.basename(img)), () => {});
+    fs.unlink(resolveStoredFilePath(img), () => {});
   }
-  sortedUploads.removeSortedDesign(req.params.id);
+  await sortedUploads.removeSortedDesign(req.params.id);
 
   res.json({ ok: true });
 });
@@ -565,13 +703,13 @@ app.delete("/api/admin/designs/:id", requireAuth, (req, res) => {
 // Ändert die TD-ID selbst (nicht den Namen) - nur für Testzwecke/Korrekturen,
 // nicht Teil des normalen Alltagsbetriebs. Zieht Bilder, Bestellzuordnungen
 // und die sortierte NAS-Ablage automatisch mit um.
-app.post("/api/admin/designs/:id/rename-id", requireAuth, (req, res) => {
+app.post("/api/admin/designs/:id/rename-id", requireAuth, async (req, res) => {
   const newId = (req.body.newId || "").trim();
   if (!newId) return res.status(400).json({ error: "Neue ID ist Pflichtfeld" });
   try {
     const updated = db.renameDesignId(req.params.id, newId);
     if (!updated) return res.status(404).json({ error: "Design nicht gefunden" });
-    sortedUploads.renameSortedDesign(req.params.id, newId);
+    await sortedUploads.renameSortedDesign(req.params.id, newId);
     res.json(updated);
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
@@ -589,7 +727,7 @@ app.get("/api/admin/designs/:id/images/:imageId/download", requireAuth, (req, re
   const ext = image.image.split(".").pop();
   const label = [image.kategorie, image.bezeichnung].filter(Boolean).map(safeFileNamePart).join(" - ");
   const downloadName = `${design.id} - ${safeFileNamePart(design.name)}${label ? " - " + label : ""}.${ext}`;
-  res.download(path.join(UPLOADS_DIR, path.basename(image.image)), downloadName);
+  res.download(resolveStoredFilePath(image.image), downloadName);
 });
 
 // --- Bild-Varianten pro Design ---
@@ -602,70 +740,113 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 30
   const design = db.getDesign(req.params.id);
   if (!design) return res.status(404).json({ error: "Design nicht gefunden" });
 
-  const { bezeichnung, typ } = req.body;
-  if (typ !== undefined && !db.IMAGE_TYP_VALUES.includes(typ)) {
-    return res.status(400).json({ error: "Ungültiger Bildtyp" });
-  }
   const files = req.files || [];
   if (files.length === 0) {
     return res.status(400).json({ error: "Mindestens ein Bild ist Pflichtfeld" });
   }
 
+  // typ/bezeichnung kommen entweder einmalig (gilt für alle Dateien wie
+  // bisher) oder - für einen kompletten Canva-Export mit gemischten Typen in
+  // einem Vorgang (Schritt 5) - als Array parallel zu den Dateien. Mehrfach
+  // gleichnamige FormData-Felder liefert multer/busboy bereits als Array.
+  const typInput = Array.isArray(req.body.typ) ? req.body.typ : req.body.typ !== undefined ? [req.body.typ] : [];
+  const bezeichnungInput = Array.isArray(req.body.bezeichnung)
+    ? req.body.bezeichnung
+    : req.body.bezeichnung !== undefined
+    ? [req.body.bezeichnung]
+    : [];
+
+  // Fehlt ein Eintrag oder ist er ungültig, gilt der erste Wert der Liste
+  // (IMAGE_TYP_VALUES[0]) - kein Ablehnen des gesamten Batches wegen einer
+  // einzelnen falschen Auswahl.
+  function resolveTyp(i) {
+    const raw = typInput.length === files.length ? typInput[i] : typInput[0];
+    return raw && db.IMAGE_TYP_VALUES.includes(raw) ? raw : db.IMAGE_TYP_VALUES[0];
+  }
+
+  // Automatische Nummerierung ("Bild 1", "Bild 2") nur, wenn für mehrere
+  // Dateien dieselbe Bezeichnung angegeben wurde (Normalfall: ein
+  // gemeinsamer Vorgabewert für alle Zeilen). Bei individuell abweichenden
+  // Bezeichnungen pro Zeile bleibt der eingegebene Text unverändert.
+  function resolveBezeichnung(i) {
+    const perFile = bezeichnungInput.length === files.length && files.length > 0 ? bezeichnungInput : null;
+    if (perFile) {
+      const allSame = perFile.every((v) => (v || "").trim() === (perFile[0] || "").trim());
+      if (!allSame) return (perFile[i] || "").trim();
+    }
+    const base = (bezeichnungInput[0] || "").trim();
+    return files.length > 1 ? `${base || "Bild"} ${i + 1}` : base;
+  }
+
   try {
     const images = [];
     const qualityWarnings = [];
-    for (const [i, file] of files.entries()) {
-      // Jede hochgeladene Originaldatei ergibt automatisch beide Varianten
-      // (mit + ohne Wasserzeichen) - kein wasserzeichen-Auswahlfeld mehr nötig.
-      const pair = await persistUploadedImagePair(file);
-      // Bei mehreren Dateien auf einmal braucht jede eine eigene, unterscheidbare
-      // Bezeichnung, sonst sehen sie sich in der Übersicht/im Dateinamen zum Verwechseln ähnlich.
-      const imageBezeichnung = files.length > 1 ? `${bezeichnung || "Bild"} ${i + 1}` : bezeichnung || "";
+    const fehlgeschlagen = [];
+    // Feste, begrenzte Nebenläufigkeit statt streng nacheinander (Schritt 3) -
+    // Ergebnisse werden trotzdem indiziert eingesammelt, sortOrder/Bezeichnung
+    // hängen von der Upload-Reihenfolge ab. Ein Teilfehler bricht die übrigen
+    // Dateien nicht ab (Schritt 4).
+    await mapWithConcurrency(files, UPLOAD_CONCURRENCY, async (file, i) => {
+      const typ = resolveTyp(i);
+      const imageBezeichnung = resolveBezeichnung(i);
+      try {
+        // Jede hochgeladene Originaldatei ergibt automatisch beide Varianten
+        // (mit + ohne Wasserzeichen) - kein wasserzeichen-Auswahlfeld mehr nötig.
+        const pair = await persistUploadedImagePair(file);
 
-      const watermarked = db.addDesignImage({
-        design_id: req.params.id,
-        wasserzeichen: true,
-        typ: typ || "Design",
-        bezeichnung: imageBezeichnung,
-        image: `/uploads/${pair.watermarked.filename}`,
-        previewImage: pair.watermarked.previewFilename ? `/uploads/${pair.watermarked.previewFilename}` : null,
-        qualityWarning: pair.qualityWarning,
-      });
-      sortedUploads.mirrorSorted(
-        path.join(UPLOADS_DIR, pair.watermarked.filename),
-        design.id,
-        watermarked.kategorie,
-        imageBezeichnung,
-        pair.watermarked.filename.split(".").pop()
-      );
+        const watermarked = db.addDesignImage({
+          design_id: req.params.id,
+          wasserzeichen: true,
+          typ,
+          bezeichnung: imageBezeichnung,
+          image: storedPath(pair.watermarked.dir, pair.watermarked.filename),
+          previewImage: pair.watermarked.previewFilename ? storedPath(pair.watermarked.previewDir, pair.watermarked.previewFilename) : null,
+          qualityWarning: pair.qualityWarning,
+        });
+        await sortedUploads.mirrorSorted(
+          path.join(dirFor(pair.watermarked.dir), pair.watermarked.filename),
+          design.id,
+          watermarked.kategorie,
+          imageBezeichnung,
+          pair.watermarked.filename.split(".").pop()
+        );
 
-      const clean = db.addDesignImage({
-        design_id: req.params.id,
-        wasserzeichen: false,
-        typ: typ || "Design",
-        bezeichnung: imageBezeichnung,
-        image: `/uploads/${pair.clean.filename}`,
-        previewImage: pair.clean.previewFilename ? `/uploads/${pair.clean.previewFilename}` : null,
-        qualityWarning: pair.qualityWarning,
-      });
-      sortedUploads.mirrorSorted(
-        path.join(UPLOADS_DIR, pair.clean.filename),
-        design.id,
-        clean.kategorie,
-        imageBezeichnung,
-        pair.clean.filename.split(".").pop()
-      );
+        const clean = db.addDesignImage({
+          design_id: req.params.id,
+          wasserzeichen: false,
+          typ,
+          bezeichnung: imageBezeichnung,
+          image: storedPath(pair.clean.dir, pair.clean.filename),
+          previewImage: pair.clean.previewFilename ? storedPath(pair.clean.previewDir, pair.clean.previewFilename) : null,
+          qualityWarning: pair.qualityWarning,
+        });
+        await sortedUploads.mirrorSorted(
+          path.join(dirFor(pair.clean.dir), pair.clean.filename),
+          design.id,
+          clean.kategorie,
+          imageBezeichnung,
+          pair.clean.filename.split(".").pop()
+        );
 
-      images.push(watermarked, clean);
-      if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
+        images.push(watermarked, clean);
+        if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
+      } catch (err) {
+        fehlgeschlagen.push({ dateiname: truncateFileName(file.originalname), grund: describeUploadError(err, "Bild-Upload") });
+      }
+    });
+
+    if (images.length === 0) {
+      return res.status(400).json({ error: "Keine der Dateien konnte verarbeitet werden.", images, qualityWarnings, fehlgeschlagen });
     }
-    res.status(201).json({ images, qualityWarnings });
+    res.status(201).json({ images, qualityWarnings, fehlgeschlagen });
   } catch (err) {
-    res.status(err.status || 400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: describeUploadError(err, "Bild-Upload") });
+  } finally {
+    await cleanupTempFiles(files);
   }
 });
 
-app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
+app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, async (req, res) => {
   const { sichtbar, wasserzeichen, typ, bezeichnung } = req.body;
   if (sichtbar === undefined && wasserzeichen === undefined && typ === undefined && bezeichnung === undefined) {
     return res.status(400).json({ error: "sichtbar, wasserzeichen, typ oder bezeichnung ist Pflichtfeld" });
@@ -703,9 +884,9 @@ app.patch("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
     // alte Datei entfernen und unter dem neuen Namen/Ordner neu ablegen.
     if (previous.kategorie !== afterUpdate.kategorie || previous.bezeichnung !== afterUpdate.bezeichnung) {
       const ext = previous.image.split(".").pop();
-      sortedUploads.removeSorted(req.params.id, previous.kategorie, previous.bezeichnung, ext);
-      sortedUploads.mirrorSorted(
-        path.join(UPLOADS_DIR, path.basename(previous.image)),
+      await sortedUploads.removeSorted(req.params.id, previous.kategorie, previous.bezeichnung, ext);
+      await sortedUploads.mirrorSorted(
+        resolveStoredFilePath(previous.image),
         req.params.id,
         afterUpdate.kategorie,
         afterUpdate.bezeichnung,
@@ -740,32 +921,48 @@ app.post("/api/admin/designs/:id/images/:imageId/replace", requireAuth, upload.s
     // Ersatzdatei ist immer die reine Originaldatei - Wasserzeichen wird nur
     // erneut aufgelegt, wenn die zu ersetzende Zeile ohnehin die
     // "Mit Wasserzeichen"-Ansicht war.
-    const { filename, previewFilename, qualityWarning } = await persistUploadedImage(req.file, {
-      watermark: Boolean(existing.wasserzeichen),
-    });
+    const persisted = await persistUploadedImage(req.file, { watermark: Boolean(existing.wasserzeichen) });
     const result = db.replaceDesignImage(req.params.imageId, {
-      image: `/uploads/${filename}`,
-      previewImage: previewFilename ? `/uploads/${previewFilename}` : null,
-      qualityWarning,
+      image: storedPath(persisted.dir, persisted.filename),
+      previewImage: persisted.previewFilename ? storedPath(persisted.previewDir, persisted.previewFilename) : null,
+      qualityWarning: persisted.qualityWarning,
     });
     if (!result) return res.status(404).json({ error: "Bild nicht gefunden" });
 
     const { old, updated } = result;
-    fs.unlink(path.join(UPLOADS_DIR, path.basename(old.image)), () => {});
-    if (old.previewImage) fs.unlink(path.join(UPLOADS_DIR, path.basename(old.previewImage)), () => {});
-    sortedUploads.removeSorted(old.design_id, old.kategorie, old.bezeichnung, old.image.split(".").pop());
+    fs.unlink(resolveStoredFilePath(old.image), () => {});
+    if (old.previewImage) fs.unlink(resolveStoredFilePath(old.previewImage), () => {});
+    await sortedUploads.removeSorted(old.design_id, old.kategorie, old.bezeichnung, old.image.split(".").pop());
 
-    const ext = filename.split(".").pop();
-    sortedUploads.mirrorSorted(path.join(UPLOADS_DIR, filename), old.design_id, old.kategorie, old.bezeichnung, ext);
+    const ext = persisted.filename.split(".").pop();
+    await sortedUploads.mirrorSorted(
+      path.join(dirFor(persisted.dir), persisted.filename),
+      old.design_id,
+      old.kategorie,
+      old.bezeichnung,
+      ext
+    );
 
     res.json(updated);
   } catch (err) {
-    res.status(err.status || 400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: describeUploadError(err, "Bild ersetzen") });
+  } finally {
+    if (req.file) await cleanupTempFiles([req.file]);
   }
 });
 
 app.post("/api/admin/designs/:id/images/:imageId/hauptbild", requireAuth, (req, res) => {
   try {
+    // Die Verkaufsdatei (wasserzeichen: false) darf nie zu designs.image
+    // werden - das würde sie über die öffentliche Design-Liste/den
+    // "Baustellen"-Platzhalter ausliefern und damit 6.1 unterlaufen. Keine
+    // Serverregel darf sich hier auf die deaktivierte Checkbox im Frontend
+    // verlassen (siehe auch die harte wasserzeichen-Prüfung in server-public.js).
+    const candidate = db.getDesignImages(req.params.id).find((img) => String(img.id) === req.params.imageId);
+    if (!candidate) return res.status(404).json({ error: "Bild nicht gefunden" });
+    if (!candidate.wasserzeichen) {
+      return res.status(400).json({ error: "Die Verkaufsdatei (ohne Wasserzeichen) kann nicht als Hauptbild festgelegt werden." });
+    }
     const updated = db.setHauptbild(req.params.id, req.params.imageId);
     if (!updated) return res.status(404).json({ error: "Bild nicht gefunden" });
     res.json(updated);
@@ -774,13 +971,13 @@ app.post("/api/admin/designs/:id/images/:imageId/hauptbild", requireAuth, (req, 
   }
 });
 
-app.delete("/api/admin/designs/:id/images/:imageId", requireAuth, (req, res) => {
+app.delete("/api/admin/designs/:id/images/:imageId", requireAuth, async (req, res) => {
   try {
     const removed = db.deleteDesignImage(req.params.imageId);
     if (!removed) return res.status(404).json({ error: "Bild nicht gefunden" });
-    fs.unlink(path.join(UPLOADS_DIR, path.basename(removed.image)), () => {});
-    if (removed.previewImage) fs.unlink(path.join(UPLOADS_DIR, path.basename(removed.previewImage)), () => {});
-    sortedUploads.removeSorted(removed.design_id, removed.kategorie, removed.bezeichnung, removed.image.split(".").pop());
+    fs.unlink(resolveStoredFilePath(removed.image), () => {});
+    if (removed.previewImage) fs.unlink(resolveStoredFilePath(removed.previewImage), () => {});
+    await sortedUploads.removeSorted(removed.design_id, removed.kategorie, removed.bezeichnung, removed.image.split(".").pop());
     res.json({ ok: true });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
@@ -1198,7 +1395,7 @@ app.get("/api/public/order/:token/download/:imageId", publicCors, orderPortalVie
     .find((img) => String(img.id) === req.params.imageId);
   if (!image) return res.status(404).json({ error: "Datei nicht gefunden." });
 
-  const target = path.join(UPLOADS_DIR, path.basename(image.image));
+  const target = resolveStoredFilePath(image.image);
   if (!fs.existsSync(target)) return res.status(404).json({ error: "Datei nicht gefunden." });
   res.download(target);
 });

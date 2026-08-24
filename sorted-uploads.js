@@ -13,20 +13,22 @@ function safeName(text) {
 // Wasserzeichen-Kategorie sortierte Ordnerstruktur (uploads-sorted/<Design-ID>/<Kategorie>/...),
 // getrennt von der flachen uploads/-Struktur mit UUID-Dateinamen, die die
 // Webseite referenziert und unangetastet bleiben soll. Dient als Quelle für
-// den NAS-Sync -> Google Drive (Cloud Sync auf der NAS).
-function mirrorSorted(localFilePath, designId, kategorie, bezeichnung, ext) {
+// den NAS-Sync -> Google Drive (Cloud Sync auf der NAS). Async statt
+// synchron (Schritt 1) - sonst blockiert der komplette Mitarbeiterbereich,
+// solange z.B. eine große Druckdatei auf die (oft langsamere NAS-)Freigabe kopiert wird.
+async function mirrorSorted(localFilePath, designId, kategorie, bezeichnung, ext) {
   try {
     const dir = path.join(SORTED_DIR, safeName(designId), safeName(kategorie));
-    fs.mkdirSync(dir, { recursive: true });
+    await fs.promises.mkdir(dir, { recursive: true });
 
     const base = safeName(bezeichnung) || safeName(kategorie) || "Bild";
     let target = path.join(dir, `${base}.${ext}`);
     let n = 2;
-    while (fs.existsSync(target)) {
+    while (await fs.promises.access(target).then(() => true, () => false)) {
       target = path.join(dir, `${base} (${n}).${ext}`);
       n++;
     }
-    fs.copyFileSync(localFilePath, target);
+    await fs.promises.copyFile(localFilePath, target);
   } catch (err) {
     console.error(`Sortierte Ablage fehlgeschlagen für ${designId}:`, err.message);
   }
@@ -36,30 +38,34 @@ function mirrorSorted(localFilePath, designId, kategorie, bezeichnung, ext) {
 // wahrscheinlichste Datei (Bezeichnung ohne Kollisions-Suffix). Bei seltenen
 // Namenskollisionen kann eine Karteileiche zurückbleiben, das ist für diese
 // reine Archiv-Kopie unkritisch.
-function removeSorted(designId, kategorie, bezeichnung, ext) {
+async function removeSorted(designId, kategorie, bezeichnung, ext) {
   try {
     const dir = path.join(SORTED_DIR, safeName(designId), safeName(kategorie));
     const base = safeName(bezeichnung) || safeName(kategorie) || "Bild";
     const target = path.join(dir, `${base}.${ext}`);
-    if (fs.existsSync(target)) fs.unlinkSync(target);
+    await fs.promises.unlink(target).catch((err) => {
+      if (err.code !== "ENOENT") throw err;
+    });
   } catch (err) {
     console.error(`Aufräumen der sortierten Ablage fehlgeschlagen für ${designId}:`, err.message);
   }
 }
 
-function removeSortedDesign(designId) {
+async function removeSortedDesign(designId) {
   try {
-    fs.rmSync(path.join(SORTED_DIR, safeName(designId)), { recursive: true, force: true });
+    await fs.promises.rm(path.join(SORTED_DIR, safeName(designId)), { recursive: true, force: true });
   } catch (err) {
     console.error(`Aufräumen der sortierten Ablage fehlgeschlagen für ${designId}:`, err.message);
   }
 }
 
-function renameSortedDesign(oldId, newId) {
+async function renameSortedDesign(oldId, newId) {
   try {
     const oldDir = path.join(SORTED_DIR, safeName(oldId));
     const newDir = path.join(SORTED_DIR, safeName(newId));
-    if (fs.existsSync(oldDir)) fs.renameSync(oldDir, newDir);
+    if (await fs.promises.access(oldDir).then(() => true, () => false)) {
+      await fs.promises.rename(oldDir, newDir);
+    }
   } catch (err) {
     console.error(`Umbenennen der sortierten Ablage fehlgeschlagen für ${oldId} -> ${newId}:`, err.message);
   }
