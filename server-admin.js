@@ -442,8 +442,18 @@ app.get("/mitarbeiter", (req, res) => {
   res.type("html").send(html);
 });
 
+// 6.5: === verrät über die Antwortzeit (Abbruch beim ersten falschen Zeichen),
+// wie viele Anfangszeichen bereits stimmen. Beide Werte erst auf eine feste
+// Länge hashen (crypto.timingSafeEqual verlangt gleich lange Buffer und würde
+// bei unterschiedlicher Passwortlänge sonst selbst wieder werfen/verraten).
+function timingSafePasswordEqual(candidate, expected) {
+  const candidateHash = crypto.createHash("sha256").update(String(candidate ?? "")).digest();
+  const expectedHash = crypto.createHash("sha256").update(String(expected)).digest();
+  return crypto.timingSafeEqual(candidateHash, expectedHash);
+}
+
 app.post("/mitarbeiter/login", loginLimiter, (req, res) => {
-  if (req.body.password === ADMIN_PASSWORD) {
+  if (timingSafePasswordEqual(req.body.password, ADMIN_PASSWORD)) {
     req.session.loggedIn = true;
     return res.redirect("/mitarbeiter/upload");
   }
