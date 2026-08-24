@@ -608,48 +608,62 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
 
     const qualityWarnings = mainPair.qualityWarning ? [mainPair.qualityWarning] : [];
     const fehlgeschlagen = [];
-    await mapWithConcurrency(extraFiles, UPLOAD_CONCURRENCY, async (file, i) => {
-      const bezeichnung = `Bild ${i + 2}`;
+    // Wie bei der Bild-Upload-Route: erst alle Extra-Dateien parallel
+    // verarbeiten und indiziert einsammeln, dann strikt sequentiell in
+    // Upload-Reihenfolge in die Datenbank schreiben - sonst überholt ein
+    // schnell verarbeitetes kleines Bild ein noch laufendes großes und
+    // sortOrder/"Bild N"-Nummerierung stimmen nicht mehr mit der
+    // tatsächlichen Auswahlreihenfolge überein.
+    const extraResults = await mapWithConcurrency(extraFiles, UPLOAD_CONCURRENCY, async (file) => {
       try {
         const pair = await persistUploadedImagePair(file);
-        db.addDesignImage({
-          design_id: design.id,
-          wasserzeichen: true,
-          typ: "Design",
-          bezeichnung,
-          image: storedPath(pair.watermarked.dir, pair.watermarked.filename),
-          previewImage: pair.watermarked.previewFilename ? storedPath(pair.watermarked.previewDir, pair.watermarked.previewFilename) : null,
-          sichtbar: true,
-          qualityWarning: pair.qualityWarning,
-        });
-        await sortedUploads.mirrorSorted(
-          path.join(dirFor(pair.watermarked.dir), pair.watermarked.filename),
-          design.id,
-          "Mit Wasserzeichen",
-          bezeichnung,
-          pair.watermarked.filename.split(".").pop()
-        );
-        db.addDesignImage({
-          design_id: design.id,
-          wasserzeichen: false,
-          typ: "Design",
-          bezeichnung,
-          image: storedPath(pair.clean.dir, pair.clean.filename),
-          previewImage: pair.clean.previewFilename ? storedPath(pair.clean.previewDir, pair.clean.previewFilename) : null,
-          qualityWarning: pair.qualityWarning,
-        });
-        await sortedUploads.mirrorSorted(
-          path.join(dirFor(pair.clean.dir), pair.clean.filename),
-          design.id,
-          "Ohne Wasserzeichen",
-          bezeichnung,
-          pair.clean.filename.split(".").pop()
-        );
-        if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
+        return { ok: true, pair };
       } catch (err) {
-        fehlgeschlagen.push({ dateiname: truncateFileName(file.originalname), grund: describeUploadError(err, "Design anlegen") });
+        return { ok: false, dateiname: truncateFileName(file.originalname), grund: describeUploadError(err, "Design anlegen") };
       }
     });
+    for (const [i, result] of extraResults.entries()) {
+      if (!result.ok) {
+        fehlgeschlagen.push({ dateiname: result.dateiname, grund: result.grund });
+        continue;
+      }
+      const { pair } = result;
+      const bezeichnung = `Bild ${i + 2}`;
+      db.addDesignImage({
+        design_id: design.id,
+        wasserzeichen: true,
+        typ: "Design",
+        bezeichnung,
+        image: storedPath(pair.watermarked.dir, pair.watermarked.filename),
+        previewImage: pair.watermarked.previewFilename ? storedPath(pair.watermarked.previewDir, pair.watermarked.previewFilename) : null,
+        sichtbar: true,
+        qualityWarning: pair.qualityWarning,
+      });
+      await sortedUploads.mirrorSorted(
+        path.join(dirFor(pair.watermarked.dir), pair.watermarked.filename),
+        design.id,
+        "Mit Wasserzeichen",
+        bezeichnung,
+        pair.watermarked.filename.split(".").pop()
+      );
+      db.addDesignImage({
+        design_id: design.id,
+        wasserzeichen: false,
+        typ: "Design",
+        bezeichnung,
+        image: storedPath(pair.clean.dir, pair.clean.filename),
+        previewImage: pair.clean.previewFilename ? storedPath(pair.clean.previewDir, pair.clean.previewFilename) : null,
+        qualityWarning: pair.qualityWarning,
+      });
+      await sortedUploads.mirrorSorted(
+        path.join(dirFor(pair.clean.dir), pair.clean.filename),
+        design.id,
+        "Ohne Wasserzeichen",
+        bezeichnung,
+        pair.clean.filename.split(".").pop()
+      );
+      if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
+    }
 
     res.status(201).json({ ...design, qualityWarnings, fehlgeschlagen });
   } catch (err) {
@@ -790,61 +804,75 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 30
   }
 
   try {
-    const images = [];
-    const qualityWarnings = [];
-    const fehlgeschlagen = [];
-    // Feste, begrenzte Nebenläufigkeit statt streng nacheinander (Schritt 3) -
-    // Ergebnisse werden trotzdem indiziert eingesammelt, sortOrder/Bezeichnung
-    // hängen von der Upload-Reihenfolge ab. Ein Teilfehler bricht die übrigen
-    // Dateien nicht ab (Schritt 4).
-    await mapWithConcurrency(files, UPLOAD_CONCURRENCY, async (file, i) => {
+    // Feste, begrenzte Nebenläufigkeit statt streng nacheinander (Schritt 3),
+    // aber NUR für die eigentliche Bildverarbeitung (persistUploadedImagePair).
+    // mapWithConcurrency liefert seine Rückgabewerte zwar schon indiziert,
+    // Datenbank-Schreibvorgänge als Seiteneffekt INNERHALB der Worker liefen
+    // bisher trotzdem in Abschlussreihenfolge - ein kleines, schnell
+    // verarbeitetes Bild konnte so ein noch laufendes großes überholen und
+    // sortOrder verfälschen. Deshalb: erst alle Dateien parallel verarbeiten
+    // und das Ergebnis pro Index einsammeln, danach in einem zweiten,
+    // strikt sequentiellen Durchlauf in Upload-Reihenfolge in die Datenbank schreiben.
+    const results = await mapWithConcurrency(files, UPLOAD_CONCURRENCY, async (file, i) => {
       const typ = resolveTyp(i);
       const imageBezeichnung = resolveBezeichnung(i);
       try {
         // Jede hochgeladene Originaldatei ergibt automatisch beide Varianten
         // (mit + ohne Wasserzeichen) - kein wasserzeichen-Auswahlfeld mehr nötig.
         const pair = await persistUploadedImagePair(file);
-
-        const watermarked = db.addDesignImage({
-          design_id: req.params.id,
-          wasserzeichen: true,
-          typ,
-          bezeichnung: imageBezeichnung,
-          image: storedPath(pair.watermarked.dir, pair.watermarked.filename),
-          previewImage: pair.watermarked.previewFilename ? storedPath(pair.watermarked.previewDir, pair.watermarked.previewFilename) : null,
-          qualityWarning: pair.qualityWarning,
-        });
-        await sortedUploads.mirrorSorted(
-          path.join(dirFor(pair.watermarked.dir), pair.watermarked.filename),
-          design.id,
-          watermarked.kategorie,
-          imageBezeichnung,
-          pair.watermarked.filename.split(".").pop()
-        );
-
-        const clean = db.addDesignImage({
-          design_id: req.params.id,
-          wasserzeichen: false,
-          typ,
-          bezeichnung: imageBezeichnung,
-          image: storedPath(pair.clean.dir, pair.clean.filename),
-          previewImage: pair.clean.previewFilename ? storedPath(pair.clean.previewDir, pair.clean.previewFilename) : null,
-          qualityWarning: pair.qualityWarning,
-        });
-        await sortedUploads.mirrorSorted(
-          path.join(dirFor(pair.clean.dir), pair.clean.filename),
-          design.id,
-          clean.kategorie,
-          imageBezeichnung,
-          pair.clean.filename.split(".").pop()
-        );
-
-        images.push(watermarked, clean);
-        if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
+        return { ok: true, pair, typ, imageBezeichnung };
       } catch (err) {
-        fehlgeschlagen.push({ dateiname: truncateFileName(file.originalname), grund: describeUploadError(err, "Bild-Upload") });
+        return { ok: false, dateiname: truncateFileName(file.originalname), grund: describeUploadError(err, "Bild-Upload") };
       }
     });
+
+    const images = [];
+    const qualityWarnings = [];
+    const fehlgeschlagen = [];
+    for (const result of results) {
+      if (!result.ok) {
+        fehlgeschlagen.push({ dateiname: result.dateiname, grund: result.grund });
+        continue;
+      }
+      const { pair, typ, imageBezeichnung } = result;
+
+      const watermarked = db.addDesignImage({
+        design_id: req.params.id,
+        wasserzeichen: true,
+        typ,
+        bezeichnung: imageBezeichnung,
+        image: storedPath(pair.watermarked.dir, pair.watermarked.filename),
+        previewImage: pair.watermarked.previewFilename ? storedPath(pair.watermarked.previewDir, pair.watermarked.previewFilename) : null,
+        qualityWarning: pair.qualityWarning,
+      });
+      await sortedUploads.mirrorSorted(
+        path.join(dirFor(pair.watermarked.dir), pair.watermarked.filename),
+        design.id,
+        watermarked.kategorie,
+        imageBezeichnung,
+        pair.watermarked.filename.split(".").pop()
+      );
+
+      const clean = db.addDesignImage({
+        design_id: req.params.id,
+        wasserzeichen: false,
+        typ,
+        bezeichnung: imageBezeichnung,
+        image: storedPath(pair.clean.dir, pair.clean.filename),
+        previewImage: pair.clean.previewFilename ? storedPath(pair.clean.previewDir, pair.clean.previewFilename) : null,
+        qualityWarning: pair.qualityWarning,
+      });
+      await sortedUploads.mirrorSorted(
+        path.join(dirFor(pair.clean.dir), pair.clean.filename),
+        design.id,
+        clean.kategorie,
+        imageBezeichnung,
+        pair.clean.filename.split(".").pop()
+      );
+
+      images.push(watermarked, clean);
+      if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
+    }
 
     if (images.length === 0) {
       return res.status(400).json({ error: "Keine der Dateien konnte verarbeitet werden.", images, qualityWarnings, fehlgeschlagen });
