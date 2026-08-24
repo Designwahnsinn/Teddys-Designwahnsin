@@ -409,6 +409,7 @@ function repairDoubleEncryptedOrderFields() {
 repairDoubleEncryptedOrderFields();
 
 migrateFromLegacyJson();
+normalizeExistingTags();
 
 // K5 (Ausbau-Dokument): "Unsortiert" muss als Ausweg existieren, BEVOR die
 // Kategorie im Formular zur reinen Auswahlliste ohne Freitext wird (Ausbau
@@ -769,10 +770,57 @@ function getTags() {
   return db.prepare("SELECT name FROM tags ORDER BY name COLLATE NOCASE ASC").all().map((r) => r.name);
 }
 
+// Schreibkonvention aus Ausbau 1.6/1.8 (Phase 0): durchgehend Kleinschreibung,
+// Leerzeichen am Rand entfernt - ohne das entstehen Dubletten wie "Blume"
+// und "blume", die später mühsam von Hand zusammenzuführen sind.
+function normalizeTagName(name) {
+  return String(name).trim().toLowerCase();
+}
+
 function getOrCreateTagId(name) {
-  const existing = db.prepare("SELECT id FROM tags WHERE name = ?").get(name);
+  const normalized = normalizeTagName(name);
+  const existing = db.prepare("SELECT id FROM tags WHERE name = ?").get(normalized);
   if (existing) return existing.id;
-  return db.prepare("INSERT INTO tags (name) VALUES (?)").run(name).lastInsertRowid;
+  return db.prepare("INSERT INTO tags (name) VALUES (?)").run(normalized).lastInsertRowid;
+}
+
+// Einmalige Migration für Tags aus der Zeit vor der Schreibkonvention
+// (Kleinschreibung, Phase 0). Kollidieren dabei zwei Tags auf denselben
+// normalisierten Namen (z.B. "Blume" und "blume"), werden sie zusammengeführt:
+// alle design_tags-Zuordnungen wandern zum zuerst angelegten Tag, der jüngere
+// wird entfernt. Danach ein No-Op bei jedem weiteren Start.
+// Als function-Deklaration (statt const = db.transaction(...)) definiert,
+// damit der Aufruf weiter oben beim Modul-Start unabhängig von der
+// Reihenfolge im Datei-Quelltext funktioniert (function-Deklarationen werden
+// gehoistet, const-Zuweisungen nicht).
+function normalizeExistingTags() {
+  const run = db.transaction(() => {
+    const rows = db.prepare("SELECT id, name FROM tags ORDER BY id ASC").all();
+    const survivorByName = new Map();
+    for (const row of rows) {
+      const normalized = normalizeTagName(row.name);
+      // Erste Zeile mit diesem normalisierten Namen wird zum Überlebenden,
+      // egal ob ihr eigener Name schon normalisiert war oder nicht - jede
+      // WEITERE Zeile mit demselben normalisierten Namen wird in sie
+      // zusammengeführt. Nur auf "hat sich der Name geändert" zu prüfen
+      // hätte den Fall übersehen, dass zwei bereits-kleingeschriebene
+      // Schreibweisen wie "blume" (id 3) nach "Blume" (id 1) kollidieren.
+      if (!survivorByName.has(normalized)) {
+        if (normalized !== row.name) {
+          db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(normalized, row.id);
+        }
+        survivorByName.set(normalized, row.id);
+        continue;
+      }
+      const survivorId = survivorByName.get(normalized);
+      db.prepare(
+        "INSERT OR IGNORE INTO design_tags (design_id, tag_id) SELECT design_id, ? FROM design_tags WHERE tag_id = ?"
+      ).run(survivorId, row.id);
+      db.prepare("DELETE FROM design_tags WHERE tag_id = ?").run(row.id);
+      db.prepare("DELETE FROM tags WHERE id = ?").run(row.id);
+    }
+  });
+  run();
 }
 
 function getDesignTags(designId) {
@@ -807,7 +855,7 @@ function addTag(name) {
 // anders als bei Kategorien reicht die eine Zeile in der tags-Tabelle,
 // design_tags verweist nur per tag_id, keine Textkopie zum Nachziehen.
 function renameTag(oldName, newName) {
-  const result = db.prepare("UPDATE tags SET name = ? WHERE name = ?").run(newName, oldName);
+  const result = db.prepare("UPDATE tags SET name = ? WHERE name = ?").run(normalizeTagName(newName), oldName);
   if (result.changes === 0) return null;
   return getTags();
 }
@@ -1136,4 +1184,5 @@ module.exports = {
   setFeedbackStatus,
   deleteFeedback,
   FEEDBACK_ART_VALUES,
+  normalizeTagName,
 };

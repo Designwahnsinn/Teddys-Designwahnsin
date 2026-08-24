@@ -66,7 +66,10 @@ function buildTagInput(allTags) {
   }
 
   function addTag(name) {
-    const trimmed = name.trim();
+    // Kleinschreibung passend zur Schreibkonvention (Ausbau 1.6/1.8) - sonst
+    // erscheinen "Blume" und "blume" clientseitig als zwei Chips, obwohl der
+    // Server sie ohnehin auf denselben Tag zusammenführt.
+    const trimmed = name.trim().toLowerCase();
     if (!trimmed || selected.includes(trimmed)) return;
     selected.push(trimmed);
     renderChips();

@@ -1036,7 +1036,7 @@ app.delete("/api/admin/categories/:name", requireAuth, (req, res) => {
 // --- Tags (frei, kein "in Benutzung"-Schutz wie bei Kategorien - ein Design
 // verliert beim Löschen eines Tags einfach nur dieses eine Tag) ---
 app.post("/api/admin/tags", requireAuth, (req, res) => {
-  const name = (req.body.name || "").trim();
+  const name = db.normalizeTagName(req.body.name || "");
   if (!name) return res.status(400).json({ error: "Name darf nicht leer sein" });
   if (db.getTags().includes(name)) {
     return res.status(400).json({ error: "Tag existiert bereits" });
@@ -1046,7 +1046,7 @@ app.post("/api/admin/tags", requireAuth, (req, res) => {
 
 app.patch("/api/admin/tags", requireAuth, (req, res) => {
   const oldName = (req.body.oldName || "").trim();
-  const newName = (req.body.newName || "").trim();
+  const newName = db.normalizeTagName(req.body.newName || "");
   if (!oldName || !newName) {
     return res.status(400).json({ error: "Alter und neuer Name sind Pflichtfelder" });
   }
