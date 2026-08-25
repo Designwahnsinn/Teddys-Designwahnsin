@@ -103,6 +103,15 @@ function renderCardView(d, body) {
   });
   onlineSelect.dataset.id = d.id;
 
+  // Direkter Sprung zur Bilder-Verwaltung, ohne den Umweg über "Bearbeiten" -
+  // Bilder pflegen ist ein eigener, häufiger Vorgang, kein Unterpunkt vom
+  // Design-Bearbeiten-Formular.
+  const bilderLink = el("a", {
+    className: "edit-btn",
+    textContent: "🖼️ Bilder",
+    href: `/mitarbeiter/designs/bilder?id=${d.id}`,
+  });
+
   const editBtn = el("button", { className: "edit-btn", textContent: "Bearbeiten" });
   editBtn.addEventListener("click", () => renderCardEdit(d, body));
 
@@ -123,7 +132,7 @@ function renderCardView(d, body) {
       el("a", { href: d.driveLink, target: "_blank", rel: "noopener", textContent: "📁 Originaldatei auf Drive" }),
     ]));
   }
-  children.push(el("div", { className: "card-actions" }, [statusSelect, onlineSelect, editBtn, deleteBtn]));
+  children.push(el("div", { className: "card-actions" }, [statusSelect, onlineSelect, bilderLink, editBtn, deleteBtn]));
 
   body.append(...children);
 }
