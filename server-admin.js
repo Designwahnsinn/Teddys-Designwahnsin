@@ -189,6 +189,13 @@ const ORDER_PORTAL_TERMS_TEXT = `
 Copyright, Weiterverkaufsverbot, Haftungsausschluss für Druckfehler]
 `.trim();
 
+// Aus demselben Grund wie ORDER_PORTAL_TERMS_TEXT als Server-Konstante
+// gehalten - der genaue Wortlaut der optionalen Nennungs-Einwilligung, damit
+// nennung_text_snapshot den tatsächlich angezeigten Text enthält. Muss mit
+// dem Checkbox-Label in bestellung.js übereinstimmen.
+const ORDER_PORTAL_NENNUNG_TEXT =
+  "Ich bin einverstanden, dass Teddys Designwahnsinn mich (z. B. Name/Instagram-Name) auf der Webseite oder auf Instagram nennen darf.";
+
 // Dateien landen zuerst einzeln auf der Platte (TMP_DIR) statt gesammelt im
 // Arbeitsspeicher - bei bis zu 30 Dateien à 20 MB Canva-Exporten in
 // Druckauflösung konnte memoryStorage den Prozess auf dem Server abschießen.
@@ -1698,7 +1705,7 @@ app.post("/api/public/order/:token/confirm", publicCors, inquiryLimiter, (req, r
   // dürfen (z.B. "Kundin trägt unser Design") - rein informativ fürs
   // Marketing, blockiert die Bestätigung nicht wie die Pflicht-Checkbox oben.
   const nennungErlaubt = typeof req.body.nennungErlaubt === "boolean" ? req.body.nennungErlaubt : undefined;
-  const updated = db.confirmOrderTerms(order.id, req.ip, ORDER_PORTAL_TERMS_TEXT, nennungErlaubt);
+  const updated = db.confirmOrderTerms(order.id, req.ip, ORDER_PORTAL_TERMS_TEXT, nennungErlaubt, ORDER_PORTAL_NENNUNG_TEXT);
   res.json({ ok: true, confirmedAt: updated.terms_confirmed_at });
 });
 

@@ -391,6 +391,9 @@ ensureColumn("orders", "manuell", "INTEGER NOT NULL DEFAULT 0");
 // (Default) heißt "nicht gefragt/keine Angabe", nicht "Nein", damit alte
 // Bestellungen ohne diese Frage nicht fälschlich als abgelehnt gelten.
 ensureColumn("orders", "nennung_erlaubt", "INTEGER");
+// Nachweis wie terms_text_snapshot: welcher genaue Fragetext zugestimmt
+// wurde, falls der Text später mal angepasst wird.
+ensureColumn("orders", "nennung_text_snapshot", "TEXT");
 
 // Wasserzeichen und Hintergrund-Variante waren früher eine einzige flache
 // Kategorie ("Mit Wasserzeichen" / "Ohne Wasserzeichen" / "Hintergrund-Variante"),
@@ -1089,8 +1092,11 @@ function setOrderDesigns(orderId, designIds, variantenMap = {}) {
     // Wenn der Kunde die Bestellung schon über das Order-Portal bestätigt
     // hatte, macht eine nachträgliche Design-Änderung diese Bestätigung
     // ungültig - Kunde muss die (jetzt andere) Bestellung erneut bestätigen.
+    // nennung_erlaubt gehört zum selben Bestätigungsakt und wird deshalb
+    // ebenfalls zurückgesetzt (siehe Kommentar an regenerateOrderToken).
     db.prepare(`
-      UPDATE orders SET terms_confirmed_at = NULL, terms_confirmed_ip = NULL, terms_text_snapshot = NULL
+      UPDATE orders SET terms_confirmed_at = NULL, terms_confirmed_ip = NULL, terms_text_snapshot = NULL,
+        nennung_erlaubt = NULL, nennung_text_snapshot = NULL
       WHERE id = ? AND terms_confirmed_at IS NOT NULL
     `).run(orderId);
   });
@@ -1172,15 +1178,18 @@ function getOrderByToken(token) {
 
 // nennungErlaubt: true/false = Kundin hat sich beim Bestätigen entschieden,
 // undefined = Frage übersprungen (z.B. bei manueller Bestätigung durchs
-// Personal) - bleibt dann NULL, nicht fälschlich "Nein".
-function confirmOrderTerms(orderId, ip, textSnapshot, nennungErlaubt) {
+// Personal) - bleibt dann NULL, nicht fälschlich "Nein". nennungTextSnapshot
+// hält wie terms_text_snapshot fest, welcher genaue Fragetext zugestimmt
+// wurde - wichtig als Nachweis, falls der Text später mal angepasst wird.
+function confirmOrderTerms(orderId, ip, textSnapshot, nennungErlaubt, nennungTextSnapshot) {
   const info = db
-    .prepare("UPDATE orders SET terms_confirmed_at = ?, terms_confirmed_ip = ?, terms_text_snapshot = ?, nennung_erlaubt = ? WHERE id = ?")
+    .prepare("UPDATE orders SET terms_confirmed_at = ?, terms_confirmed_ip = ?, terms_text_snapshot = ?, nennung_erlaubt = ?, nennung_text_snapshot = ? WHERE id = ?")
     .run(
       new Date().toISOString(),
       encryptField(ip),
       textSnapshot,
       nennungErlaubt === undefined ? null : (nennungErlaubt ? 1 : 0),
+      nennungErlaubt === undefined ? null : nennungTextSnapshot,
       orderId
     );
   if (info.changes === 0) return null;
@@ -1189,12 +1198,16 @@ function confirmOrderTerms(orderId, ip, textSnapshot, nennungErlaubt) {
 
 // Neuer Token nach Ablauf oder falls der alte Link versehentlich woanders
 // gelandet ist - macht eine vorherige Bestätigung ungültig, da diese sich auf
-// den alten Link bezog.
+// den alten Link bezog. nennung_erlaubt gehört zu demselben Bestätigungsakt
+// wie die AGB (dieselbe Checkbox-Seite, derselbe Klick) und muss deshalb
+// genauso zurückgesetzt werden - sonst bliebe eine Antwort stehen, die sich
+// eigentlich auf eine jetzt ungültige Bestätigung bezog.
 function regenerateOrderToken(orderId) {
   const info = db
     .prepare(`
       UPDATE orders SET access_token = ?, token_created_at = ?,
-        terms_confirmed_at = NULL, terms_confirmed_ip = NULL, terms_text_snapshot = NULL
+        terms_confirmed_at = NULL, terms_confirmed_ip = NULL, terms_text_snapshot = NULL,
+        nennung_erlaubt = NULL, nennung_text_snapshot = NULL
       WHERE id = ?
     `)
     .run(generateOrderToken(), new Date().toISOString(), orderId);
