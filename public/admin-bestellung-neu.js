@@ -397,7 +397,19 @@ function renderPreisoptionenBlock(order, totalEl) {
     const initialGruppe = (d.exklusiveGruppen && d.exklusiveGruppen[0] && d.exklusiveGruppen[0].gruppe) || "";
     const exklusivBestandteile = new Set((d.exklusiveGruppen || []).map((e) => e.bestandteil));
 
-    const gruppeSelect = el("select", { className: "variant-dropdown exklusiv-gruppe-select", hidden: true });
+    // Freier Text statt Dropdown, das nur erscheint, wenn die Bilder schon
+    // vorher in der Bilder-Verwaltung mit einer Gruppe versehen wurden - die
+    // Auswahl muss auch dann funktionieren, wenn das noch niemand nachgetragen
+    // hat. Mit Vorschlagsliste, falls es doch schon Gruppen gibt (Tippfehler vermeiden).
+    const gruppeListId = `wizard-gruppe-list-${d.id}`;
+    const gruppeDatalist = el("datalist", { id: gruppeListId });
+    const gruppeInput = el("input", {
+      type: "text",
+      className: "exklusiv-gruppe-input",
+      placeholder: "Welche Variante/Farbe? (z. B. Blau, Nr. 2 - leer = ganzes Design ohne Varianten)",
+      value: initialGruppe,
+    });
+    gruppeInput.setAttribute("list", gruppeListId);
     const exklusivError = el("p", { className: "wizard-hint exklusiv-error", hidden: true });
 
     const bausteine = PREISOPTIONEN.map((opt) => ({
@@ -409,7 +421,7 @@ function renderPreisoptionenBlock(order, totalEl) {
     async function saveExklusivitaet() {
       const entries = bausteine
         .filter((b) => b.checkbox.checked && b.exklusivCheckbox.checked)
-        .map((b) => ({ gruppe: gruppeSelect.value || null, bestandteil: b.opt.key }));
+        .map((b) => ({ gruppe: gruppeInput.value.trim() || null, bestandteil: b.opt.key }));
       const res = await fetch(`/api/admin/orders/${order.id}/designs/${d.id}/exklusivitaet`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -449,7 +461,7 @@ function renderPreisoptionenBlock(order, totalEl) {
         if (!ok) exklusivCheckbox.checked = !exklusivCheckbox.checked;
       });
     });
-    gruppeSelect.addEventListener("change", () => saveExklusivitaet());
+    gruppeInput.addEventListener("change", () => saveExklusivitaet());
 
     const optionLabels = bausteine.map(({ opt, checkbox, exklusivCheckbox }) =>
       el("label", { className: "variant-dropdown-option" }, [
@@ -463,22 +475,20 @@ function renderPreisoptionenBlock(order, totalEl) {
       el("div", { className: "wizard-design-item" }, [
         el("span", { textContent: `${d.id} · ${d.name}` }),
         el("div", { className: "wizard-design-variant-row" }, optionLabels),
-        gruppeSelect,
+        gruppeInput,
+        gruppeDatalist,
         exklusivError,
       ])
     );
 
-    // Gruppen dieses Designs asynchron nachladen - die "exklusiv"-Häkchen
-    // funktionieren auch ohne Gruppe (gruppe: null = ganzes Design), das
-    // Dropdown blendet sich nur ein, wenn es tatsächlich Varianten gibt.
+    // Vorschlagsliste aus den in der Bilder-Verwaltung bereits vergebenen
+    // Gruppen dieses Designs - rein optional, das Feld funktioniert auch ohne
+    // (z.B. wenn dort noch niemand eine Gruppe eingetragen hat).
     fetch(`/api/admin/designs/${d.id}/images`)
       .then((r) => r.json())
       .then((images) => {
         const gruppen = [...new Set(images.map((i) => i.gruppe).filter(Boolean))];
-        if (gruppen.length === 0) return;
-        gruppeSelect.appendChild(el("option", { value: "", textContent: "(ohne Gruppe)" }));
-        gruppen.forEach((g) => gruppeSelect.appendChild(el("option", { value: g, textContent: g, selected: g === initialGruppe })));
-        gruppeSelect.hidden = false;
+        gruppen.forEach((g) => gruppeDatalist.appendChild(el("option", { value: g })));
       })
       .catch(() => {});
   });

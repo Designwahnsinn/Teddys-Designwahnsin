@@ -729,7 +729,16 @@
 /* Farbexklusive Varianten: Exklusiv-Häkchen pro Preisbaustein + Gruppen-Auswahl */
 .exklusiv-toggle { font-size: 0.78rem; color: var(--muted); margin-left: 0.3rem; }
 .exklusiv-checkbox:checked { accent-color: #a6660b; }
-.exklusiv-gruppe-select { margin: 0.4rem 0.7rem 0 3.4rem; max-width: 260px; }
+.exklusiv-gruppe-input {
+  display: block;
+  margin: 0.4rem 0.7rem 0 3.4rem;
+  max-width: 340px;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
 .exklusiv-error { color: #c0392b; padding: 0 0.7rem; margin: 0.2rem 0 0 3.4rem; font-size: 0.8rem; }
 
 .file-preview { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
