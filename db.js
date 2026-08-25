@@ -1338,6 +1338,28 @@ const completeOrder = db.transaction((orderId) => {
     throw new Error('Schritt "Für Download freigegeben" ist noch nicht erledigt');
   }
 
+  // Erneute Konflikt-Prüfung: findExklusivKonflikte lief schon beim Setzen der
+  // Exklusivität in Schritt 3 (siehe exklusivitaet-Route), aber zu dem
+  // Zeitpunkt zählen nur bereits ABGESCHLOSSENE Bestellungen als vergeben.
+  // Zwei parallel laufende Bestellungen für dieselbe Gruppe/denselben
+  // Bestandteil können beide diese erste Prüfung unabhängig voneinander
+  // bestehen, wenn keine von beiden schon abgeschlossen war - ohne diese
+  // zweite Prüfung direkt vor dem Vergeben könnte dieselbe Exklusivität an
+  // zwei Kundinnen gehen, wenn beide Bestellungen kurz hintereinander
+  // abgeschlossen werden.
+  for (const design of order.designs) {
+    const entries = design.exklusiveGruppen || [];
+    if (entries.length === 0) continue;
+    const konflikte = findExklusivKonflikte(design.id, entries);
+    if (konflikte.length > 0) {
+      const err = new Error(
+        `Design ${design.id}: Exklusivität wurde inzwischen anderweitig vergeben (Konflikt mit einer zwischenzeitlich abgeschlossenen Bestellung) - bitte in Schritt 3 prüfen und ggf. anpassen.`
+      );
+      err.status = 409;
+      throw err;
+    }
+  }
+
   db.prepare("UPDATE orders SET status = 'Erledigt' WHERE id = ?").run(orderId);
   const incrementCounter = db.prepare(
     "UPDATE designs SET verkaufszaehler = verkaufszaehler + 1 WHERE id = ?"
