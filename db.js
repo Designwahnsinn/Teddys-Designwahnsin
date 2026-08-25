@@ -381,6 +381,11 @@ ensureColumn("order_designs", "exklusiveGruppen", "TEXT");
 if (ensureColumn("orders", "schritt_bezahlung", "INTEGER NOT NULL DEFAULT 0")) {
   db.prepare("UPDATE orders SET schritt_bezahlung = 1 WHERE schritt_download = 1").run();
 }
+// Markiert die Beleg-Bestellungen aus addManualLizenz (Rechte-Vergabe außerhalb
+// des Bestellassistenten) - die durchlaufen keinen echten Schritt-Ablauf und
+// sollen deshalb nicht zwischen echten Kundenbestellungen auftauchen (siehe
+// listOrders).
+ensureColumn("orders", "manuell", "INTEGER NOT NULL DEFAULT 0");
 
 // Wasserzeichen und Hintergrund-Variante waren früher eine einzige flache
 // Kategorie ("Mit Wasserzeichen" / "Ohne Wasserzeichen" / "Hintergrund-Variante"),
@@ -1200,10 +1205,15 @@ function setOrderFile(orderId, field, filename) {
   return getOrder(orderId);
 }
 
+// manuell=1 (Beleg-Bestellungen aus addManualLizenz) taucht hier absichtlich
+// nie auf - das sind keine echten Kundenbestellungen und würden in der
+// normalen Übersicht (z.B. mit Status "Erledigt" aber ohne Kunden-Bestätigung)
+// nur verwirren. Direkt per getOrder(id) weiterhin abrufbar (siehe
+// Design-Rechte-Seite, "Bestellung ansehen").
 function listOrders(status) {
   const orders = status
-    ? db.prepare("SELECT * FROM orders WHERE status = ? ORDER BY bestelldatum DESC").all(status)
-    : db.prepare("SELECT * FROM orders ORDER BY bestelldatum DESC").all();
+    ? db.prepare("SELECT * FROM orders WHERE status = ? AND manuell = 0 ORDER BY bestelldatum DESC").all(status)
+    : db.prepare("SELECT * FROM orders WHERE manuell = 0 ORDER BY bestelldatum DESC").all();
 
   const designCountStmt = db.prepare(`
     SELECT d.id, d.name FROM designs d
@@ -1401,8 +1411,8 @@ const addManualLizenz = db.transaction(({ designId, gruppe, kundeName, notiz }) 
   }
   const now = new Date().toISOString();
   const orderInfo = db.prepare(`
-    INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status, notiz, access_token, token_created_at)
-    VALUES (?, '', '', '', 'E-Mail', ?, 'Erledigt', ?, ?, ?)
+    INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status, notiz, access_token, token_created_at, manuell)
+    VALUES (?, '', '', '', 'E-Mail', ?, 'Erledigt', ?, ?, ?, 1)
   `).run(
     encryptField(kundeName),
     now,
