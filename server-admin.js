@@ -1652,9 +1652,22 @@ app.get("/api/public/order/:token", publicCors, orderPortalViewLimiter, (req, re
     id: d.id,
     name: d.name,
     price: d.berechneterPreis,
+    // "Design" ist ein Preis pro Farbvariante, nicht pro Bestellung - bei
+    // mehreren gewählten Design-Varianten (siehe designVariantenAnzahl,
+    // countDesignTypVarianten in db.js) muss das für die Kundin transparent
+    // sein, sonst wirkt der Gesamtpreis unerklärlich hoch.
     priceBreakdown: d.preisoptionen
       .filter((key) => PREISOPTIONEN_LABELS[key])
-      .map((key) => ({ label: PREISOPTIONEN_LABELS[key], price: key === "design" ? d.price : key === "png" ? d.pricePng : d.priceHintergrund })),
+      .map((key) => {
+        if (key === "design") {
+          const anzahl = d.designVariantenAnzahl || 1;
+          return {
+            label: anzahl > 1 ? `${PREISOPTIONEN_LABELS.design} (${anzahl}×)` : PREISOPTIONEN_LABELS.design,
+            price: (d.price || 0) * anzahl,
+          };
+        }
+        return { label: PREISOPTIONEN_LABELS[key], price: key === "png" ? d.pricePng : d.priceHintergrund };
+      }),
     // Welche Farbvariante zugeordnet ist, soll die Kundin beim Bestätigen
     // sehen können, nicht "blind" auf einen Design-Namen bestätigen.
     varianten: d.varianten || [],

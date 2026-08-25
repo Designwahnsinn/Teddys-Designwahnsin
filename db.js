@@ -1138,6 +1138,25 @@ function setOrderDesignExklusivitaet(orderId, designId, exklusiveGruppen) {
   return info.changes > 0;
 }
 
+// Zählt, wie viele der in Schritt 2 gewählten Varianten vom Typ "Design"
+// sind - jede Design-Variante (z.B. eine von 5-10 Farbvarianten desselben
+// Designs) ist ein eigenes Verkaufsobjekt zum jeweiligen Design-Preis, nicht
+// nur eine von mehreren Ansichten desselben einen Kaufs. PNG ("alle Motive")
+// und Hintergrund sind dagegen Pauschalpreise, unabhängig davon, wie viele
+// Motiv-/Hintergrund-Varianten ausgewählt wurden. Labels werden genauso
+// aufgebaut wie variantLabel() im Client, damit derselbe String matcht.
+function countDesignTypVarianten(designId, varianten) {
+  if (!varianten || varianten.length === 0) return 0;
+  const images = getDesignImages(designId).filter((img) => img.wasserzeichen);
+  let count = 0;
+  images.forEach((img, i) => {
+    const typ = img.typ || (img.hintergrundVariante ? "Hintergrund-Variante" : "Design");
+    const label = img.bezeichnung ? `${i + 1}. ${typ} – ${img.bezeichnung}` : `${i + 1}. ${typ}`;
+    if (typ === "Design" && varianten.includes(label)) count++;
+  });
+  return count;
+}
+
 function designsWithVarianten(orderId) {
   return db.prepare(`
     SELECT d.*, od.varianten AS varianten, od.preisoptionen AS preisoptionen, od.exklusiveGruppen AS exklusiveGruppen FROM designs d
@@ -1148,16 +1167,22 @@ function designsWithVarianten(orderId) {
     // Preise nur der Design-Preis, kein automatisches Aufschlagen von
     // PNG/Hintergrund ohne bewusste Auswahl im Angebot-Schritt.
     const preisoptionen = d.preisoptionen ? JSON.parse(d.preisoptionen) : ["design"];
+    const varianten = d.varianten ? JSON.parse(d.varianten) : [];
+    // Keine spezifische Design-Variante ausgewählt (z.B. Design ohne
+    // mehrere Farbvarianten, oder "leer = ganzes Design ohne Varianten")
+    // zählt als 1, nicht als 0.
+    const designVariantenAnzahl = Math.max(countDesignTypVarianten(d.id, varianten), 1);
     let berechneterPreis = 0;
-    if (preisoptionen.includes("design")) berechneterPreis += d.price || 0;
+    if (preisoptionen.includes("design")) berechneterPreis += (d.price || 0) * designVariantenAnzahl;
     if (preisoptionen.includes("png")) berechneterPreis += d.pricePng || 0;
     if (preisoptionen.includes("hintergrund")) berechneterPreis += d.priceHintergrund || 0;
     return {
       ...d,
-      varianten: d.varianten ? JSON.parse(d.varianten) : [],
+      varianten,
       preisoptionen,
       exklusiveGruppen: d.exklusiveGruppen ? JSON.parse(d.exklusiveGruppen) : [],
       berechneterPreis,
+      designVariantenAnzahl,
     };
   });
 }

@@ -385,7 +385,18 @@ function totalPrice(order) {
 }
 
 const PREISOPTIONEN = [
-  { key: "design", label: (d) => `Design (${formatPrice(d.price)})` },
+  {
+    key: "design",
+    // designVariantenAnzahl kommt vom Server (siehe countDesignTypVarianten
+    // in db.js) - jede gewählte Design-Variante (Farbvariante) kostet den
+    // Design-Preis einzeln, anders als PNG/Hintergrund (Pauschalpreis).
+    label: (d) => {
+      const anzahl = d.designVariantenAnzahl || 1;
+      return anzahl > 1
+        ? `Design (${anzahl}× ${formatPrice(d.price)} = ${formatPrice((d.price || 0) * anzahl)})`
+        : `Design (${formatPrice(d.price)})`;
+    },
+  },
   { key: "png", label: (d) => `PNG-Dateien, alle Motive (${formatPrice(d.pricePng)})` },
   { key: "hintergrund", label: (d) => `Hintergrund (${formatPrice(d.priceHintergrund)})` },
 ];
@@ -732,7 +743,9 @@ function renderAbschlussUebersicht(order) {
   const designListEl = el("div", { className: "wizard-design-list" },
     order.designs.map((d) => {
       const preisoptionen = d.preisoptionen && d.preisoptionen.length > 0 ? d.preisoptionen : ["design"];
-      const bausteineText = preisoptionen.map((p) => PREISOPTIONEN_LABEL[p] || p).join(" + ");
+      const bausteineText = preisoptionen
+        .map((p) => (p === "design" && d.designVariantenAnzahl > 1 ? `${PREISOPTIONEN_LABEL[p]} (${d.designVariantenAnzahl}×)` : PREISOPTIONEN_LABEL[p] || p))
+        .join(" + ");
       const exklusiv = (d.exklusiveGruppen || []).some((e) => e.bestandteil === "design");
       const varianten = d.varianten && d.varianten.length > 0 ? sortVariantLabels(d.varianten) : null;
       return el("div", { className: "wizard-design-item" }, [
