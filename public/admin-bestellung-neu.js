@@ -385,15 +385,47 @@ const PREISOPTIONEN = [
 
 // Pro zugeordnetem Design ankreuzbar, welche Preisbausteine ins Angebot
 // einfließen (addierend) - Gesamtsumme rechts aktualisiert sich live bei
-// jedem Klick, ohne die Seite neu zu laden.
+// jedem Klick, ohne die Seite neu zu laden. Zusätzlich pro Bestandteil
+// "exklusiv" ankreuzbar (Farbexklusive Varianten) - reserviert noch nichts,
+// das passiert erst beim Abschließen der Bestellung, prüft aber schon hier
+// auf Konflikte mit bereits abgeschlossenen Bestellungen.
 function renderPreisoptionenBlock(order, totalEl) {
   const listEl = el("div", { className: "wizard-design-list" });
 
   order.designs.forEach((d) => {
     const selected = new Set(d.preisoptionen && d.preisoptionen.length > 0 ? d.preisoptionen : ["design"]);
+    const initialGruppe = (d.exklusiveGruppen && d.exklusiveGruppen[0] && d.exklusiveGruppen[0].gruppe) || "";
+    const exklusivBestandteile = new Set((d.exklusiveGruppen || []).map((e) => e.bestandteil));
 
-    const optionLabels = PREISOPTIONEN.map((opt) => {
-      const checkbox = el("input", { type: "checkbox", checked: selected.has(opt.key) });
+    const gruppeSelect = el("select", { className: "variant-dropdown exklusiv-gruppe-select", hidden: true });
+    const exklusivError = el("p", { className: "wizard-hint exklusiv-error", hidden: true });
+
+    const bausteine = PREISOPTIONEN.map((opt) => ({
+      opt,
+      checkbox: el("input", { type: "checkbox", checked: selected.has(opt.key) }),
+      exklusivCheckbox: el("input", { type: "checkbox", className: "exklusiv-checkbox", checked: exklusivBestandteile.has(opt.key), disabled: !selected.has(opt.key) }),
+    }));
+
+    async function saveExklusivitaet() {
+      const entries = bausteine
+        .filter((b) => b.checkbox.checked && b.exklusivCheckbox.checked)
+        .map((b) => ({ gruppe: gruppeSelect.value || null, bestandteil: b.opt.key }));
+      const res = await fetch(`/api/admin/orders/${order.id}/designs/${d.id}/exklusivitaet`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exklusiveGruppen: entries }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        exklusivError.textContent = data.error || "Fehler beim Speichern der Exklusivität.";
+        exklusivError.hidden = false;
+        return false;
+      }
+      exklusivError.hidden = true;
+      return true;
+    }
+
+    bausteine.forEach(({ opt, checkbox, exklusivCheckbox }) => {
       checkbox.addEventListener("change", async () => {
         if (checkbox.checked) selected.add(opt.key);
         else selected.delete(opt.key);
@@ -409,16 +441,46 @@ function renderPreisoptionenBlock(order, totalEl) {
         } else {
           checkbox.checked = !checkbox.checked;
         }
+        exklusivCheckbox.disabled = !checkbox.checked;
+        await saveExklusivitaet();
       });
-      return el("label", { className: "variant-dropdown-option" }, [checkbox, document.createTextNode(` ${opt.label(d)}`)]);
+      exklusivCheckbox.addEventListener("change", async () => {
+        const ok = await saveExklusivitaet();
+        if (!ok) exklusivCheckbox.checked = !exklusivCheckbox.checked;
+      });
     });
+    gruppeSelect.addEventListener("change", () => saveExklusivitaet());
+
+    const optionLabels = bausteine.map(({ opt, checkbox, exklusivCheckbox }) =>
+      el("label", { className: "variant-dropdown-option" }, [
+        checkbox,
+        document.createTextNode(` ${opt.label(d)} `),
+        el("label", { className: "exklusiv-toggle" }, [exklusivCheckbox, document.createTextNode(" 🔒 exklusiv")]),
+      ])
+    );
 
     listEl.appendChild(
       el("div", { className: "wizard-design-item" }, [
         el("span", { textContent: `${d.id} · ${d.name}` }),
         el("div", { className: "wizard-design-variant-row" }, optionLabels),
+        gruppeSelect,
+        exklusivError,
       ])
     );
+
+    // Gruppen dieses Designs asynchron nachladen - die "exklusiv"-Häkchen
+    // funktionieren auch ohne Gruppe (gruppe: null = ganzes Design), das
+    // Dropdown blendet sich nur ein, wenn es tatsächlich Varianten gibt.
+    fetch(`/api/admin/designs/${d.id}/images`)
+      .then((r) => r.json())
+      .then((images) => {
+        const gruppen = [...new Set(images.map((i) => i.gruppe).filter(Boolean))];
+        if (gruppen.length === 0) return;
+        gruppeSelect.appendChild(el("option", { value: "", textContent: "(ohne Gruppe)" }));
+        gruppen.forEach((g) => gruppeSelect.appendChild(el("option", { value: g, textContent: g, selected: g === initialGruppe })));
+        gruppeSelect.hidden = false;
+      })
+      .catch(() => {});
   });
 
   return listEl;

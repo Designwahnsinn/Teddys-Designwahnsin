@@ -174,11 +174,14 @@ async function loadImages() {
     const orderOf = (members) => Math.min(...members.map((m) => m.sortOrder ?? m.id));
     return orderOf(a[1]) - orderOf(b[1]);
   });
+  // Für die Vorschlagsliste im Gruppenfeld (Schritt 10) - verhindert
+  // Tippfehler wie "Blau" und "blau", ohne die Freiheit einzuschränken.
+  const allGruppen = [...new Set(images.map((i) => i.gruppe).filter(Boolean))];
   gridEl.innerHTML = "";
-  orderedPairs.forEach(([pairId, members]) => gridEl.appendChild(renderPairCard(pairId, members)));
+  orderedPairs.forEach(([pairId, members]) => gridEl.appendChild(renderPairCard(pairId, members, allGruppen)));
 }
 
-function renderPairCard(pairId, members) {
+function renderPairCard(pairId, members, allGruppen) {
   const watermarked = members.find((m) => m.wasserzeichen);
   const clean = members.find((m) => !m.wasserzeichen);
   const qualityWarning = watermarked?.qualityWarning || clean?.qualityWarning;
@@ -233,6 +236,19 @@ function renderPairCard(pairId, members) {
     value: reference.bezeichnung || "",
   });
   bezeichnungInput.addEventListener("change", () => patchPair({ bezeichnung: bezeichnungInput.value.trim() }));
+
+  // Varianten-Gruppe (Schritt 10) - freier Text statt fester Liste, mit
+  // Vorschlagsliste aus den in diesem Design bereits verwendeten Gruppen.
+  const gruppeListId = `gruppe-list-${pairId}`;
+  const gruppeDatalist = el("datalist", { id: gruppeListId }, allGruppen.map((g) => el("option", { value: g })));
+  const gruppeInput = el("input", {
+    type: "text",
+    className: "gruppe-input",
+    placeholder: "Gruppe / Farbvariante (optional, z. B. Blau)",
+    value: reference.gruppe || "",
+  });
+  gruppeInput.setAttribute("list", gruppeListId);
+  gruppeInput.addEventListener("change", () => patchPair({ gruppe: gruppeInput.value.trim() }));
 
   const sichtbarLabel = watermarked
     ? el("label", { className: "image-visible-toggle" })
@@ -303,6 +319,8 @@ function renderPairCard(pairId, members) {
     thumbs,
     typSelectEl,
     bezeichnungInput,
+    gruppeInput,
+    gruppeDatalist,
     savedHint,
     qualityWarning ? el("p", { className: "quality-warning", textContent: `⚠️ ${qualityWarning}` }) : null,
     sichtbarLabel,

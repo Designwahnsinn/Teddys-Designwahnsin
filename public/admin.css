@@ -723,8 +723,14 @@
 .wizard-quality-warning { color: #a6660b; font-size: 0.78rem; white-space: nowrap; }
 .wizard-quality-ok { color: #2d7a4f; font-size: 0.78rem; white-space: nowrap; }
 .wizard-design-item { display: flex; flex-direction: column; }
-.wizard-design-variant-row { padding: 0 0.7rem 0.5rem 3.4rem; }
+.wizard-design-variant-row { padding: 0 0.7rem 0.5rem 3.4rem; display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; }
 .wizard-design-variant-row .variant-dropdown { margin-top: 0; max-width: 320px; }
+
+/* Farbexklusive Varianten: Exklusiv-Häkchen pro Preisbaustein + Gruppen-Auswahl */
+.exklusiv-toggle { font-size: 0.78rem; color: var(--muted); margin-left: 0.3rem; }
+.exklusiv-checkbox:checked { accent-color: #a6660b; }
+.exklusiv-gruppe-select { margin: 0.4rem 0.7rem 0 3.4rem; max-width: 260px; }
+.exklusiv-error { color: #c0392b; padding: 0 0.7rem; margin: 0.2rem 0 0 3.4rem; font-size: 0.8rem; }
 
 .file-preview { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
 .file-preview img {
@@ -803,7 +809,8 @@
 .hauptbild-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .hauptbild-btn:disabled { color: var(--accent); border-color: var(--accent); cursor: default; opacity: 0.8; }
 .image-card .delete-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.image-card .bezeichnung-input {
+.image-card .bezeichnung-input,
+.image-card .gruppe-input {
   display: block;
   margin: 0.5rem 1rem 0;
   padding: 0.35rem 0.6rem;
@@ -813,6 +820,7 @@
   font-family: inherit;
   width: calc(100% - 2rem);
 }
+.image-card .gruppe-input { color: var(--accent); font-weight: 600; }
 /* Schritt 8: Kachel statt getrennter Zeilen für Wasserzeichen + Verkaufsdatei */
 .image-card { position: relative; }
 .image-card-head { padding: 0.5rem 1rem 0; }

@@ -517,6 +517,10 @@ app.get("/mitarbeiter/kundenlinks", requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, "views", "admin-kundenlinks.html"));
 });
 
+app.get("/mitarbeiter/design-rechte", requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, "views", "admin-design-rechte.html"));
+});
+
 // Wird von admin-designs.js / admin-neu.js / admin-kategorien.js für die
 // Kategorien-Auswahl gebraucht (gleiche Form wie beim öffentlichen /api/config)
 app.get("/api/config", requireAuth, (req, res) => {
@@ -1066,9 +1070,9 @@ app.delete("/api/admin/designs/:id/images/:imageId", requireAuth, async (req, re
 // Wasserzeichen) gemeinsam ändern, statt Typ/Bezeichnung zweimal einzutragen ---
 
 app.patch("/api/admin/designs/:id/images/pair/:pairId", requireAuth, async (req, res) => {
-  const { typ, bezeichnung } = req.body;
-  if (typ === undefined && bezeichnung === undefined) {
-    return res.status(400).json({ error: "typ oder bezeichnung ist Pflichtfeld" });
+  const { typ, bezeichnung, gruppe } = req.body;
+  if (typ === undefined && bezeichnung === undefined && gruppe === undefined) {
+    return res.status(400).json({ error: "typ, bezeichnung oder gruppe ist Pflichtfeld" });
   }
   if (typ !== undefined && !db.IMAGE_TYP_VALUES.includes(typ)) {
     return res.status(400).json({ error: "Ungültiger Bildtyp" });
@@ -1076,9 +1080,13 @@ app.patch("/api/admin/designs/:id/images/pair/:pairId", requireAuth, async (req,
   if (bezeichnung !== undefined && typeof bezeichnung !== "string") {
     return res.status(400).json({ error: "bezeichnung muss Text sein" });
   }
+  if (gruppe !== undefined && gruppe !== null && typeof gruppe !== "string") {
+    return res.status(400).json({ error: "gruppe muss Text sein" });
+  }
   const result = db.setPairEigenschaften(req.params.id, req.params.pairId, {
     typ,
     bezeichnung: bezeichnung !== undefined ? bezeichnung.trim() : undefined,
+    gruppe: gruppe !== undefined ? (gruppe || "").trim() : undefined,
   });
   if (!result) return res.status(404).json({ error: "Bild-Paar nicht gefunden" });
 
@@ -1309,6 +1317,42 @@ app.patch("/api/admin/orders/:id/designs/:designId/preisoptionen", requireAuth, 
   if (!ok) return res.status(404).json({ error: "Bestellung oder Design nicht gefunden" });
   const order = db.getOrder(Number(req.params.id));
   res.json(order);
+});
+
+// Farbexklusive Varianten: welche Gruppe/Preisbaustein-Kombinationen für
+// dieses Design in dieser Bestellung exklusiv verkauft werden. Reserviert
+// noch nichts (das passiert erst beim Abschließen, siehe completeOrder) -
+// prüft aber schon hier, ob eine gewünschte Kombination bereits an eine
+// andere abgeschlossene Bestellung vergeben ist, damit der Konflikt sofort
+// auffällt statt erst beim Abschließen.
+app.patch("/api/admin/orders/:id/designs/:designId/exklusivitaet", requireAuth, (req, res) => {
+  const { exklusiveGruppen } = req.body;
+  if (!Array.isArray(exklusiveGruppen)) {
+    return res.status(400).json({ error: "exklusiveGruppen muss ein Array sein" });
+  }
+  for (const entry of exklusiveGruppen) {
+    if (!entry || typeof entry !== "object" || !db.PREISOPTIONEN_VALUES.includes(entry.bestandteil)) {
+      return res.status(400).json({ error: `Jeder Eintrag braucht einen gültigen bestandteil (${db.PREISOPTIONEN_VALUES.join("/")})` });
+    }
+    if (entry.gruppe !== undefined && entry.gruppe !== null && typeof entry.gruppe !== "string") {
+      return res.status(400).json({ error: "gruppe muss Text oder leer sein" });
+    }
+  }
+  const konflikte = db.findExklusivKonflikte(req.params.designId, exklusiveGruppen);
+  if (konflikte.length > 0) {
+    return res.status(409).json({
+      error: `Bereits exklusiv vergeben: ${konflikte.map((k) => `${k.gruppe || "(ohne Gruppe)"} – ${k.bestandteil}`).join(", ")}`,
+      konflikte,
+    });
+  }
+  const ok = db.setOrderDesignExklusivitaet(Number(req.params.id), req.params.designId, exklusiveGruppen);
+  if (!ok) return res.status(404).json({ error: "Bestellung oder Design nicht gefunden" });
+  res.json(db.getOrder(Number(req.params.id)));
+});
+
+// Übersicht "Design-Rechte": alle bisher exklusiv vergebenen Gruppen/Bestandteile.
+app.get("/api/admin/design-lizenzen", requireAuth, (req, res) => {
+  res.json(db.getDesignLizenzenUebersicht());
 });
 
 // Schritte 3-7: einzelnen Wizard-Schritt abhaken (Reihenfolge wird serverseitig erzwungen)

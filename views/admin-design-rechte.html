@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design-Rechte – Teddys Designwahnsinn</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <main>
+    <div class="admin-header">
+      <div>
+        <a class="admin-nav-link" href="/mitarbeiter/upload">← Dashboard</a>
+        <h1>Design-Rechte</h1>
+      </div>
+      <div class="admin-header-actions">
+        <form class="logout-form" action="/mitarbeiter/logout" method="POST">
+          <button type="submit">Abmelden</button>
+        </form>
+      </div>
+    </div>
+    <p class="wizard-hint">Wer hat an welcher Design-Variante exklusive Rechte. Wird erst beim Abschließen einer Bestellung eingetragen (siehe Schritt „Kunde hat bestätigt" / Abschluss im Bestell-Wizard), ein offenes Angebot reserviert noch nichts.</p>
+
+    <input type="search" id="rechte-search" class="wizard-design-search" placeholder="Nach TD-ID, Design-Name oder Kundin suchen …">
+
+    <div class="order-table-wrap">
+      <table class="order-table">
+        <thead>
+          <tr>
+            <th>Design</th>
+            <th>Gruppe</th>
+            <th>Bestandteil</th>
+            <th>Kundin</th>
+            <th>Vergeben am</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rechte-rows"></tbody>
+      </table>
+      <p id="rechte-empty" class="order-empty" hidden>Noch keine exklusiven Rechte vergeben.</p>
+    </div>
+  </main>
+
+  <script src="/admin-design-rechte.js"></script>
+  <script src="/feedback-widget.js"></script>
+</body>
+</html>

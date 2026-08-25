@@ -359,6 +359,13 @@ ensureColumn("order_designs", "varianten", "TEXT");
 // standardmäßig nur "design" (entspricht dem alten Verhalten vor Einführung
 // der gestaffelten Preise).
 ensureColumn("order_designs", "preisoptionen", "TEXT");
+// Farbexklusive Varianten: JSON-Array aus {gruppe, bestandteil}, das
+// festhält, welche Gruppe/Preisbaustein-Kombinationen in dieser Bestellung
+// exklusiv verkauft werden. Wird erst beim Abschließen der Bestellung in
+// design_lizenzen übernommen (siehe completeOrder) - ein offenes Angebot
+// reserviert noch nichts, genau wie preisoptionen auch erst zählt, wenn die
+// Bestellung tatsächlich abgeschlossen wird.
+ensureColumn("order_designs", "exklusiveGruppen", "TEXT");
 // Neuer Schritt "Auf Bezahlung warten" zwischen Rechnung und Download - für
 // Bestellungen, die schon weiter waren als der neue Schritt (schritt_download
 // bereits erledigt), rückwirkend als erledigt markieren, sonst würden sie
@@ -811,15 +818,16 @@ function deleteDesignImage(imageId) {
 // Setzt Typ/Bezeichnung für BEIDE Zeilen eines Paars auf einmal. Gibt beide
 // alten Zeilen mit zurück, damit der Aufrufer die sortierte Ablage für beide
 // Varianten nachziehen kann, falls sich Typ oder Bezeichnung geändert haben.
-function setPairEigenschaften(designId, pairId, { typ, bezeichnung }) {
+function setPairEigenschaften(designId, pairId, { typ, bezeichnung, gruppe }) {
   const members = db.prepare("SELECT * FROM design_images WHERE design_id = ? AND pairId = ?").all(designId, pairId);
   if (members.length === 0) return null;
   const updated = members.map((existing) => {
     const newTyp = typ === undefined ? existing.typ : typ;
     const hg = typ === undefined ? existing.hintergrundVariante : (typImpliesHintergrundVariante(typ) ? 1 : 0);
     const newBezeichnung = bezeichnung === undefined ? existing.bezeichnung : bezeichnung;
-    db.prepare("UPDATE design_images SET hintergrundVariante = ?, typ = ?, bezeichnung = ?, kategorie = ? WHERE id = ?")
-      .run(hg, newTyp, newBezeichnung, kategorieLabel(existing.wasserzeichen, newTyp), existing.id);
+    const newGruppe = gruppe === undefined ? existing.gruppe : gruppe || null;
+    db.prepare("UPDATE design_images SET hintergrundVariante = ?, typ = ?, bezeichnung = ?, kategorie = ?, gruppe = ? WHERE id = ?")
+      .run(hg, newTyp, newBezeichnung, kategorieLabel(existing.wasserzeichen, newTyp), newGruppe, existing.id);
     return db.prepare("SELECT * FROM design_images WHERE id = ?").get(existing.id);
   });
   return { old: members, updated };
@@ -1082,9 +1090,32 @@ function setOrderDesignPreisoptionen(orderId, designId, optionen) {
   return info.changes > 0;
 }
 
+// Prüft, ob eine der gewünschten Gruppe/Bestandteil-Kombinationen bereits
+// exklusiv vergeben ist - nur abgeschlossene Bestellungen zählen (ein noch
+// offenes Angebot reserviert nichts, siehe Kommentar an exklusiveGruppen
+// oben). Gibt die betroffenen Einträge zurück, leeres Array = kein Konflikt.
+function findExklusivKonflikte(designId, entries) {
+  if (!entries || entries.length === 0) return [];
+  const vergeben = db.prepare(`
+    SELECT dl.gruppe, dl.bestandteil FROM design_lizenzen dl
+    JOIN orders o ON o.id = dl.order_id
+    WHERE dl.design_id = ? AND dl.exklusiv = 1 AND o.status = 'Erledigt'
+  `).all(designId);
+  return entries.filter((e) => vergeben.some((v) => (v.gruppe || "") === (e.gruppe || "") && v.bestandteil === e.bestandteil));
+}
+
+// Legt fest, welche Gruppe/Bestandteil-Kombinationen für dieses Design in
+// dieser Bestellung exklusiv verkauft werden sollen. Der Aufrufer (Route)
+// prüft vorher mit findExklusivKonflikte, ob das überhaupt noch frei ist.
+function setOrderDesignExklusivitaet(orderId, designId, exklusiveGruppen) {
+  const json = exklusiveGruppen && exklusiveGruppen.length > 0 ? JSON.stringify(exklusiveGruppen) : null;
+  const info = db.prepare("UPDATE order_designs SET exklusiveGruppen = ? WHERE order_id = ? AND design_id = ?").run(json, orderId, designId);
+  return info.changes > 0;
+}
+
 function designsWithVarianten(orderId) {
   return db.prepare(`
-    SELECT d.*, od.varianten AS varianten, od.preisoptionen AS preisoptionen FROM designs d
+    SELECT d.*, od.varianten AS varianten, od.preisoptionen AS preisoptionen, od.exklusiveGruppen AS exklusiveGruppen FROM designs d
     JOIN order_designs od ON od.design_id = d.id
     WHERE od.order_id = ?
   `).all(orderId).map((d) => {
@@ -1096,7 +1127,13 @@ function designsWithVarianten(orderId) {
     if (preisoptionen.includes("design")) berechneterPreis += d.price || 0;
     if (preisoptionen.includes("png")) berechneterPreis += d.pricePng || 0;
     if (preisoptionen.includes("hintergrund")) berechneterPreis += d.priceHintergrund || 0;
-    return { ...d, varianten: d.varianten ? JSON.parse(d.varianten) : [], preisoptionen, berechneterPreis };
+    return {
+      ...d,
+      varianten: d.varianten ? JSON.parse(d.varianten) : [],
+      preisoptionen,
+      exklusiveGruppen: d.exklusiveGruppen ? JSON.parse(d.exklusiveGruppen) : [],
+      berechneterPreis,
+    };
   });
 }
 
@@ -1288,8 +1325,42 @@ const completeOrder = db.transaction((orderId) => {
   );
   for (const design of order.designs) incrementCounter.run(design.id);
 
+  // Exklusive Rechte werden erst jetzt, beim tatsächlichen Abschluss, fest
+  // vergeben (siehe Kommentar an order_designs.exklusiveGruppen) - vorher war
+  // es nur ein Vorschlag im Angebot, den ein Kunde nie bestätigt haben könnte.
+  const insertLizenz = db.prepare(
+    "INSERT INTO design_lizenzen (order_id, design_id, gruppe, bestandteil, exklusiv, createdAt) VALUES (?, ?, ?, ?, 1, ?)"
+  );
+  const now = new Date().toISOString();
+  for (const design of order.designs) {
+    for (const entry of design.exklusiveGruppen || []) {
+      insertLizenz.run(orderId, design.id, entry.gruppe || null, entry.bestandteil, now);
+    }
+  }
+
   return getOrder(orderId);
 });
+
+// Übersicht "Design-Rechte": wer hat an welcher Design-Variante exklusive
+// Rechte. Kundendaten liegen verschlüsselt in orders - Entschlüsselung
+// passiert hier beim Lesen, nicht über eine SQL-Suche auf den Klartext.
+function getDesignLizenzenUebersicht() {
+  const rows = db.prepare(`
+    SELECT dl.id, dl.design_id, dl.gruppe, dl.bestandteil, dl.createdAt,
+           d.name AS designName, d.category AS designCategory,
+           o.id AS order_id, o.kunde_name, o.kunde_email
+    FROM design_lizenzen dl
+    JOIN designs d ON d.id = dl.design_id
+    JOIN orders o ON o.id = dl.order_id
+    WHERE dl.exklusiv = 1
+    ORDER BY dl.createdAt DESC
+  `).all();
+  return rows.map((r) => ({
+    ...r,
+    kunde_name: decryptField(r.kunde_name),
+    kunde_email: decryptField(r.kunde_email),
+  }));
+}
 
 module.exports = {
   getDesigns,
@@ -1316,6 +1387,9 @@ module.exports = {
   setOrderDesigns,
   setOrderDesignPreisoptionen,
   PREISOPTIONEN_VALUES,
+  findExklusivKonflikte,
+  setOrderDesignExklusivitaet,
+  getDesignLizenzenUebersicht,
   getOrder,
   getOrderByToken,
   confirmOrderTerms,
