@@ -33,6 +33,14 @@ function renderError(message) {
 // style.css, das bestellung.html ohnehin schon einbindet. Nur zeigen, wenn
 // es wirklich mehr als einen Baustein gibt, sonst wäre eine Ein-Zeilen-
 // Tabelle für nur "Design" reine Redundanz zum Gesamtpreis daneben.
+// Labels wie "2. Hintergrund-Variante" nach der führenden Nummer sortieren -
+// hier zusätzlich bei der Anzeige (nicht nur beim Speichern), damit auch
+// bereits gespeicherte Bestellungen mit noch unsortierten Varianten korrekt
+// erscheinen, ohne die Daten migrieren zu müssen.
+function sortVariantLabels(labels) {
+  return [...labels].sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0));
+}
+
 function renderPriceBreakdown(rows) {
   if (rows.length <= 1) return null;
   return el("div", { className: "price-table" }, [
@@ -57,7 +65,7 @@ function renderDesignsList(order) {
             d.exklusiv ? el("span", { className: "badge-exklusiv", textContent: "Exklusiv" }) : null,
           ].filter(Boolean)),
           d.varianten && d.varianten.length > 0
-            ? el("p", { className: "order-design-variant", textContent: `Variante: ${d.varianten.join(", ")}` })
+            ? el("p", { className: "order-design-variant", textContent: `Variante: ${sortVariantLabels(d.varianten).join(", ")}` })
             : null,
           renderPriceBreakdown(d.priceBreakdown || []),
         ].filter(Boolean)),

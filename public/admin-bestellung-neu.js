@@ -43,6 +43,13 @@ function variantLabel(img, index) {
   return `${index}. ${base}`;
 }
 
+// Labels wie "2. Hintergrund-Variante" nach der führenden Nummer sortieren -
+// eine Set-Auswahl (Klick-Reihenfolge) darf nicht in genau dieser
+// willkürlichen Reihenfolge bei der Kundin landen.
+function sortVariantLabels(labels) {
+  return [...labels].sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0));
+}
+
 // Mehrfachauswahl-Dropdown für die Bild-Varianten eines Designs, analog zur
 // öffentlichen Anfrage-Lightbox - damit auch bei manuell angelegten
 // Bestellungen (z.B. Instagram-DM) festgehalten werden kann, welche Variante
@@ -328,7 +335,7 @@ async function renderStep2DesignPicker(order) {
       const varianten = Object.fromEntries(
         [...variantenSelection]
           .filter(([id, set]) => designIds.includes(id) && set.size > 0)
-          .map(([id, set]) => [id, [...set]])
+          .map(([id, set]) => [id, sortVariantLabels([...set])])
       );
       const res = await fetch(`/api/admin/orders/${order.id}/designs`, {
         method: "PATCH",
@@ -403,6 +410,11 @@ function renderPreisoptionenBlock(order, totalEl) {
     // gemeinsame Gruppe, sofern in der Bilder-Verwaltung gepflegt). Nur wenn
     // sich daraus keine eindeutige Gruppe ergibt (keine Varianten gewählt,
     // oder die Bilder haben noch keine Gruppe), bleibt ein Eingabefeld als Rückfalloption.
+    // Übersicht, was in Schritt 2 ausgewählt wurde - immer sichtbar, egal ob
+    // sich daraus eine eindeutige Exklusivitäts-Gruppe ableiten lässt. Das
+    // manuelle Eingabefeld unten ist NICHT dieselbe Information nochmal
+    // abzufragen, sondern nur ein Rückfall für die Exklusivität, wenn nötig.
+    const variantenSummary = el("p", { className: "wizard-hint", hidden: true });
     const gruppeInfo = el("p", { className: "wizard-hint exklusiv-gruppe-info", hidden: true });
     const gruppeListId = `wizard-gruppe-list-${d.id}`;
     const gruppeDatalist = el("datalist", { id: gruppeListId });
@@ -488,6 +500,7 @@ function renderPreisoptionenBlock(order, totalEl) {
       el("div", { className: "wizard-design-item" }, [
         el("span", { textContent: `${d.id} · ${d.name}` }),
         el("div", { className: "wizard-design-variant-row" }, optionLabels),
+        variantenSummary,
         gruppeInfo,
         gruppeInput,
         gruppeDatalist,
@@ -507,6 +520,11 @@ function renderPreisoptionenBlock(order, totalEl) {
         gruppenAllerVarianten.forEach((g) => gruppeDatalist.appendChild(el("option", { value: g })));
 
         const gewaehlteVarianten = d.varianten || [];
+        if (gewaehlteVarianten.length > 0) {
+          variantenSummary.textContent = `Ausgewählt in Schritt 2: ${sortVariantLabels(gewaehlteVarianten).join(", ")}`;
+          variantenSummary.hidden = false;
+        }
+
         const gruppenAusAuswahl = [
           ...new Set(
             watermarked
@@ -516,20 +534,27 @@ function renderPreisoptionenBlock(order, totalEl) {
           ),
         ];
 
+        const designExklusivCheckbox = bausteine.find((b) => b.opt.key === "design")?.exklusivCheckbox;
+
         if (gewaehlteVarianten.length > 0 && gruppenAusAuswahl.length === 1) {
           abgeleiteteGruppe = gruppenAusAuswahl[0];
-          gruppeInfo.textContent = `Variante: ${abgeleiteteGruppe} (aus der Design-Auswahl in Schritt 2 übernommen)`;
+          gruppeInfo.textContent = `Exklusivitäts-Gruppe: ${abgeleiteteGruppe} (aus der Auswahl in Schritt 2 übernommen)`;
           gruppeInfo.hidden = false;
-        } else {
+        } else if (designExklusivCheckbox) {
           // Keine eindeutige Ableitung möglich (keine Varianten gewählt, die
           // gewählten Bilder haben noch keine Gruppe, oder sie gehören zu
-          // unterschiedlichen Gruppen) - Eingabefeld als Rückfalloption zeigen.
-          gruppeInput.hidden = false;
+          // unterschiedlichen Gruppen) - Eingabefeld ist dann nur ein
+          // Rückfall FÜR DIE EXKLUSIVITÄT, kein zweites "welche Variante"-
+          // Nachfragen. Deshalb nur zeigen, wenn "Design" tatsächlich als
+          // exklusiv angekreuzt ist/wird, nicht standardmäßig für jede Bestellung.
+          const updateFallbackVisibility = () => {
+            gruppeInput.hidden = !designExklusivCheckbox.checked;
+          };
+          updateFallbackVisibility();
+          designExklusivCheckbox.addEventListener("change", updateFallbackVisibility);
         }
       })
-      .catch(() => {
-        gruppeInput.hidden = false;
-      });
+      .catch(() => {});
   });
 
   return listEl;
@@ -657,12 +682,30 @@ function renderStepAction(order, stepKey) {
       );
     }
   } else if (stepKey === "schritt_bezahlung") {
+    // Checkbox statt Button (Feedback: man muss den Zahlungseingang eh
+    // manuell prüfen, eine Checkbox zeigt dabei klar den aktuellen Stand
+    // an statt einer Handlungsaufforderung, die nach dem Klick sofort
+    // verschwindet).
+    const paidCheckbox = el("input", { type: "checkbox" });
+    paidCheckbox.addEventListener("change", async () => {
+      if (!paidCheckbox.checked) return;
+      errorMsg.textContent = "";
+      paidCheckbox.disabled = true;
+      try {
+        const updated = await callStep(order, stepKey);
+        renderForOrder(updated);
+      } catch (err) {
+        errorMsg.textContent = err.message;
+        paidCheckbox.checked = false;
+        paidCheckbox.disabled = false;
+      }
+    });
     panelEl.append(
       el("h2", { textContent: "Schritt 5 · Bezahlung erhalten" }),
       el("p", { textContent: `Gesamtsumme: ${formatPrice(totalPrice(order))}` }),
-      el("p", { className: "wizard-hint", textContent: "Sobald der Zahlungseingang bestätigt ist, hier weiterklicken - Dateien und Rechnung werden dann automatisch für den Kunden-Download freigegeben, kein separater Schritt nötig." }),
+      el("p", { className: "wizard-hint", textContent: "Sobald der Zahlungseingang bestätigt ist, hier ankreuzen - Dateien und Rechnung werden dann automatisch für den Kunden-Download freigegeben, kein separater Schritt nötig." }),
       errorMsg,
-      el("button", { type: "button", textContent: "Zahlung erhalten – weiter", onclick: () => runStep() })
+      el("label", { className: "wizard-design-row" }, [paidCheckbox, document.createTextNode(" Zahlung erhalten")])
     );
   } else if (stepKey === "schritt_datei_geloescht") {
     const listEl = el("ul", { className: "download-list" });
@@ -675,6 +718,52 @@ function renderStepAction(order, stepKey) {
     );
     loadDownloadLinks(order, listEl);
   }
+}
+
+const PREISOPTIONEN_LABEL = { design: "Design", png: "PNG-Dateien", hintergrund: "Hintergrund" };
+
+// Letzter Überblick vor dem Abschließen - was der Kunde kauft (Bausteine,
+// Varianten, Preis, Exklusivität) UND welche Bestätigungen mit welchem
+// Zeitstempel vorliegen. Nur Felder zeigen, für die es echte Zeitstempel in
+// der Datenbank gibt (bestelldatum, terms_confirmed_at) - die einzelnen
+// Schritt-Häkchen (schritt_rechnung etc.) haben keinen eigenen Zeitstempel,
+// nur einen Erledigt-Status.
+function renderAbschlussUebersicht(order) {
+  const designListEl = el("div", { className: "wizard-design-list" },
+    order.designs.map((d) => {
+      const preisoptionen = d.preisoptionen && d.preisoptionen.length > 0 ? d.preisoptionen : ["design"];
+      const bausteineText = preisoptionen.map((p) => PREISOPTIONEN_LABEL[p] || p).join(" + ");
+      const exklusiv = (d.exklusiveGruppen || []).some((e) => e.bestandteil === "design");
+      const varianten = d.varianten && d.varianten.length > 0 ? sortVariantLabels(d.varianten) : null;
+      return el("div", { className: "wizard-design-item" }, [
+        el("span", {
+          textContent: `${d.id} · ${d.name} — ${bausteineText} (${formatPrice(d.berechneterPreis)})${exklusiv ? " · 🔒 exklusiv" : ""}`,
+        }),
+        varianten ? el("p", { className: "wizard-hint", textContent: `Variante(n): ${varianten.join(", ")}` }) : null,
+      ].filter(Boolean));
+    })
+  );
+
+  const nennungText =
+    order.nennung_erlaubt === 1
+      ? "📸 Darf auf Webseite/Instagram genannt werden"
+      : order.nennung_erlaubt === 0
+        ? "🚫 Möchte NICHT auf Webseite/Instagram genannt werden"
+        : "❔ Keine Angabe zur Nennung auf Webseite/Instagram";
+
+  return el("div", { className: "wizard-panel-hint" }, [
+    el("h3", { textContent: "Was der Kunde kauft" }),
+    designListEl,
+    el("p", { className: "wizard-total", textContent: `Gesamtsumme: ${formatPrice(totalPrice(order))}` }),
+    el("h3", { textContent: "Bestätigungen" }),
+    el("p", { textContent: `Bestellung angelegt am ${new Date(order.bestelldatum).toLocaleString("de-DE")}` }),
+    el("p", {
+      textContent: order.terms_confirmed_at
+        ? `✅ AGB/Widerruf/Nutzungsvereinbarung bestätigt am ${new Date(order.terms_confirmed_at).toLocaleString("de-DE")} (IP: ${order.terms_confirmed_ip})`
+        : "⏳ AGB/Widerruf noch nicht bestätigt",
+    }),
+    el("p", { textContent: nennungText }),
+  ]);
 }
 
 function renderCompleteStep(order) {
@@ -697,6 +786,7 @@ function renderCompleteStep(order) {
   panelEl.append(
     el("h2", { textContent: "Schritt 7 · Abschließen" }),
     el("p", { textContent: "Alle Schritte erledigt. Verkaufszähler der Designs wird beim Abschließen um 1 erhöht." }),
+    renderAbschlussUebersicht(order),
     errorMsg,
     completeBtn
   );

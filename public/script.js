@@ -83,6 +83,13 @@ function variantLabel(img, index) {
   return `${index}. ${base}`;
 }
 
+// Labels wie "2. Hintergrund-Variante" nach der führenden Nummer sortieren -
+// eine Set-Auswahl (Klick-Reihenfolge) darf nicht in genau dieser
+// willkürlichen Reihenfolge bei der Kundin landen.
+function sortVariantLabels(labels) {
+  return [...labels].sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0));
+}
+
 function el(tag, props, children) {
   const node = document.createElement(tag);
   Object.assign(node, props);
@@ -460,7 +467,7 @@ inquiryForm.addEventListener("submit", async (e) => {
         varianten: Object.fromEntries(
           [...variantenSelection]
             .filter(([id, set]) => selection.has(id) && set.size > 0)
-            .map(([id, set]) => [id, [...set]])
+            .map(([id, set]) => [id, sortVariantLabels([...set])])
         ),
       }),
     });

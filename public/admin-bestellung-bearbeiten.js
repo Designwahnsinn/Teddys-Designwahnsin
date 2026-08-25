@@ -45,6 +45,13 @@ function variantLabel(img, index) {
   return `${index}. ${base}`;
 }
 
+// Labels wie "2. Hintergrund-Variante" nach der führenden Nummer sortieren -
+// eine Set-Auswahl (Klick-Reihenfolge) darf nicht in genau dieser
+// willkürlichen Reihenfolge bei der Kundin landen.
+function sortVariantLabels(labels) {
+  return [...labels].sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0));
+}
+
 // Mehrfachauswahl-Dropdown für die Bild-Varianten eines Designs, analog zur
 // öffentlichen Anfrage-Lightbox. Bilder werden erst beim ersten Öffnen
 // nachgeladen, damit nicht für jedes zugeordnete Design sofort ein Request rausgeht.
@@ -211,7 +218,7 @@ function render(order, allDesigns) {
     const varianten = Object.fromEntries(
       [...variantenSelection]
         .filter(([id, set]) => designIds.includes(id) && set.size > 0)
-        .map(([id, set]) => [id, [...set]])
+        .map(([id, set]) => [id, sortVariantLabels([...set])])
     );
 
     const [orderRes, designsRes] = await Promise.all([
