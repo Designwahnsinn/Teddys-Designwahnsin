@@ -28,12 +28,39 @@ function renderError(message) {
   ]));
 }
 
+// Preis-Aufschlüsselung wie im öffentlichen Katalog (siehe
+// renderLightboxPriceTable in script.js) - dieselben CSS-Klassen aus
+// style.css, das bestellung.html ohnehin schon einbindet. Nur zeigen, wenn
+// es wirklich mehr als einen Baustein gibt, sonst wäre eine Ein-Zeilen-
+// Tabelle für nur "Design" reine Redundanz zum Gesamtpreis daneben.
+function renderPriceBreakdown(rows) {
+  if (rows.length <= 1) return null;
+  return el("div", { className: "price-table" }, [
+    el("p", { className: "price-table-hint", textContent: "Enthält:" }),
+    ...rows.map((r) =>
+      el("div", { className: "price-table-row" }, [
+        el("span", { textContent: r.label }),
+        el("span", { textContent: formatPrice(r.price) }),
+      ])
+    ),
+  ]);
+}
+
 function renderDesignsList(order) {
   return el("ul", { className: "order-designs-list" },
     order.designs.map((d) =>
       el("li", { className: "order-design-row" }, [
         d.previewImage ? el("img", { src: d.previewImage, alt: d.name }) : null,
-        el("span", { className: "order-design-name", textContent: d.name }),
+        el("div", { className: "order-design-info" }, [
+          el("div", { className: "order-design-header" }, [
+            el("span", { className: "order-design-name", textContent: d.name }),
+            d.exklusiv ? el("span", { className: "badge-exklusiv", textContent: "Exklusiv" }) : null,
+          ].filter(Boolean)),
+          d.varianten && d.varianten.length > 0
+            ? el("p", { className: "order-design-variant", textContent: `Variante: ${d.varianten.join(", ")}` })
+            : null,
+          renderPriceBreakdown(d.priceBreakdown || []),
+        ].filter(Boolean)),
         el("span", { className: "order-design-price", textContent: formatPrice(d.price) }),
       ].filter(Boolean))
     )

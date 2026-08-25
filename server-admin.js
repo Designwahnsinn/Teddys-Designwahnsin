@@ -1636,10 +1636,25 @@ app.get("/api/public/order/:token", publicCors, orderPortalViewLimiter, (req, re
     return res.status(410).json({ error: "Dieser Link ist abgelaufen. Bitte melde dich bei uns für einen neuen Link.", expired: true });
   }
 
+  // Aufschlüsselung der Preisbausteine (wie im öffentlichen Katalog, siehe
+  // renderLightboxPriceTable in script.js) statt nur der Summe - sonst weiß
+  // die Kundin nicht, ob sie z.B. nur PNG-Dateien oder das komplette Paket
+  // bestätigt. Nur Bausteine zeigen, die tatsächlich Teil des Angebots sind.
+  const PREISOPTIONEN_LABELS = { design: "Design", png: "PNG-Dateien, alle Motive", hintergrund: "Hintergrund" };
   const designs = order.designs.map((d) => ({
     id: d.id,
     name: d.name,
     price: d.berechneterPreis,
+    priceBreakdown: d.preisoptionen
+      .filter((key) => PREISOPTIONEN_LABELS[key])
+      .map((key) => ({ label: PREISOPTIONEN_LABELS[key], price: key === "design" ? d.price : key === "png" ? d.pricePng : d.priceHintergrund })),
+    // Welche Farbvariante zugeordnet ist, soll die Kundin beim Bestätigen
+    // sehen können, nicht "blind" auf einen Design-Namen bestätigen.
+    varianten: d.varianten || [],
+    // Nur "design" kann exklusiv sein (siehe Validierung in der
+    // exklusivitaet-Route) - reicht als einfaches Flag statt der vollen
+    // exklusiveGruppen-Struktur, die intern für PNG/Hintergrund offen bliebe.
+    exklusiv: (d.exklusiveGruppen || []).some((e) => e.bestandteil === "design"),
     previewImage: pickPreviewImage(d.id),
     deliverables: order.download_freigegeben
       ? deliverableImagesForDesign(d).map((img) => ({ id: img.id, bezeichnung: img.bezeichnung }))
