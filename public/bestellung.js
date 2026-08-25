@@ -99,6 +99,9 @@ function renderDownloadSection(order) {
 
 function renderConfirmForm(order) {
   const checkbox = el("input", { type: "checkbox", id: "confirm-checkbox" });
+  // Rein optional (Marketing-Einwilligung, nicht Teil der AGB) - deshalb
+  // eigene Checkbox, unbeteiligt an der Pflicht-Bestätigung darüber.
+  const nennungCheckbox = el("input", { type: "checkbox", id: "nennung-checkbox" });
   const errorMsg = el("p", { className: "order-error-inline" });
   const submitBtn = el("button", { className: "btn btn-buy", type: "submit", textContent: "Verbindlich bestätigen" });
 
@@ -108,6 +111,10 @@ function renderConfirmForm(order) {
     el("label", { className: "order-confirm-label" }, [
       checkbox,
       document.createTextNode(" Ich habe AGB, Widerrufsbelehrung und Nutzungsvereinbarung gelesen und bestätige verbindlich."),
+    ]),
+    el("label", { className: "order-confirm-label order-confirm-label-optional" }, [
+      nennungCheckbox,
+      document.createTextNode(" Optional: Ich bin einverstanden, dass Teddys Designwahnsinn mich (z. B. Name/Instagram-Name) auf der Webseite oder auf Instagram nennen darf."),
     ]),
     errorMsg,
     submitBtn,
@@ -124,7 +131,7 @@ function renderConfirmForm(order) {
       const res = await fetch(`${ADMIN_ORIGIN}/api/public/order/${token}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmed: true }),
+        body: JSON.stringify({ confirmed: true, nennungErlaubt: nennungCheckbox.checked }),
       });
       const data = await res.json();
       if (!res.ok) {

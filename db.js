@@ -386,6 +386,11 @@ if (ensureColumn("orders", "schritt_bezahlung", "INTEGER NOT NULL DEFAULT 0")) {
 // sollen deshalb nicht zwischen echten Kundenbestellungen auftauchen (siehe
 // listOrders).
 ensureColumn("orders", "manuell", "INTEGER NOT NULL DEFAULT 0");
+// Ob wir die Kundin auf Webseite/Instagram nennen dürfen (z.B. "getragen
+// von..."), von ihr beim Bestätigen im Order-Portal beantwortet - NULL
+// (Default) heißt "nicht gefragt/keine Angabe", nicht "Nein", damit alte
+// Bestellungen ohne diese Frage nicht fälschlich als abgelehnt gelten.
+ensureColumn("orders", "nennung_erlaubt", "INTEGER");
 
 // Wasserzeichen und Hintergrund-Variante waren früher eine einzige flache
 // Kategorie ("Mit Wasserzeichen" / "Ohne Wasserzeichen" / "Hintergrund-Variante"),
@@ -1165,10 +1170,19 @@ function getOrderByToken(token) {
   return decryptOrderRow({ ...order, designs: designsWithVarianten(order.id) });
 }
 
-function confirmOrderTerms(orderId, ip, textSnapshot) {
+// nennungErlaubt: true/false = Kundin hat sich beim Bestätigen entschieden,
+// undefined = Frage übersprungen (z.B. bei manueller Bestätigung durchs
+// Personal) - bleibt dann NULL, nicht fälschlich "Nein".
+function confirmOrderTerms(orderId, ip, textSnapshot, nennungErlaubt) {
   const info = db
-    .prepare("UPDATE orders SET terms_confirmed_at = ?, terms_confirmed_ip = ?, terms_text_snapshot = ? WHERE id = ?")
-    .run(new Date().toISOString(), encryptField(ip), textSnapshot, orderId);
+    .prepare("UPDATE orders SET terms_confirmed_at = ?, terms_confirmed_ip = ?, terms_text_snapshot = ?, nennung_erlaubt = ? WHERE id = ?")
+    .run(
+      new Date().toISOString(),
+      encryptField(ip),
+      textSnapshot,
+      nennungErlaubt === undefined ? null : (nennungErlaubt ? 1 : 0),
+      orderId
+    );
   if (info.changes === 0) return null;
   return getOrder(orderId);
 }

@@ -1694,7 +1694,11 @@ app.post("/api/public/order/:token/confirm", publicCors, inquiryLimiter, (req, r
     return res.status(400).json({ error: "Bitte die Bestätigung ankreuzen" });
   }
 
-  const updated = db.confirmOrderTerms(order.id, req.ip, ORDER_PORTAL_TERMS_TEXT);
+  // Optionale Frage, ob wir Name/Design auf Webseite oder Instagram zeigen
+  // dürfen (z.B. "Kundin trägt unser Design") - rein informativ fürs
+  // Marketing, blockiert die Bestätigung nicht wie die Pflicht-Checkbox oben.
+  const nennungErlaubt = typeof req.body.nennungErlaubt === "boolean" ? req.body.nennungErlaubt : undefined;
+  const updated = db.confirmOrderTerms(order.id, req.ip, ORDER_PORTAL_TERMS_TEXT, nennungErlaubt);
   res.json({ ok: true, confirmedAt: updated.terms_confirmed_at });
 });
 

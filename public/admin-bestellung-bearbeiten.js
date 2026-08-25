@@ -254,6 +254,17 @@ function render(order, allDesigns) {
       ? `✅ Vom Kunden bestätigt am ${new Date(order.terms_confirmed_at).toLocaleString("de-DE")} (IP: ${order.terms_confirmed_ip})`
       : "⏳ Noch nicht vom Kunden bestätigt.",
   });
+  // nennung_erlaubt: null solange nicht bestätigt/gefragt (z.B. manuelle
+  // Bestätigung durchs Personal) - erst danach eine echte Ja/Nein-Antwort.
+  const nennungStatus = el("p", {
+    className: "wizard-hint",
+    textContent:
+      order.nennung_erlaubt === 1
+        ? "📸 Darf auf Webseite/Instagram genannt werden."
+        : order.nennung_erlaubt === 0
+          ? "🚫 Möchte NICHT auf Webseite/Instagram genannt werden."
+          : "❔ Keine Angabe zur Nennung auf Webseite/Instagram.",
+  });
   // Fallback für telefonisch/per Instagram-DM zugesagte Bestellungen ohne
   // Portal-Klick - setzt denselben terms_confirmed_at-Status wie eine echte
   // Portal-Bestätigung.
@@ -324,6 +335,7 @@ function render(order, allDesigns) {
     el("label", { textContent: "Bestätigungslink" }),
     el("div", { className: "card-actions" }, [linkInput, copyBtn]),
     confirmStatus,
+    nennungStatus,
     confirmManuallyBtn,
     freigabeLabel,
     el("div", { className: "card-actions" }, [regenerateBtn]),
