@@ -17,6 +17,35 @@ function el(tag, props, children) {
   return node;
 }
 
+// Zoom-Ansicht für Kachel-Thumbnails (Feedback: Thumbnails sind mit
+// height:120px + object-fit:cover stark beschnitten, Details/Bildqualität
+// lassen sich darin kaum beurteilen) - ein einziges wiederverwendetes
+// Overlay statt eins pro Kachel, damit nicht dutzende versteckte
+// Lightbox-Elemente im DOM hängen.
+const imageLightbox = el("div", { className: "image-lightbox", hidden: true }, [
+  el("button", { type: "button", className: "image-lightbox-close", textContent: "×", "aria-label": "Schließen" }),
+  el("img", { className: "image-lightbox-img" }),
+]);
+document.body.appendChild(imageLightbox);
+const lightboxImg = imageLightbox.querySelector(".image-lightbox-img");
+
+function openImageLightbox(src, alt) {
+  lightboxImg.src = src;
+  lightboxImg.alt = alt || "";
+  imageLightbox.hidden = false;
+}
+function closeImageLightbox() {
+  imageLightbox.hidden = true;
+  lightboxImg.src = "";
+}
+imageLightbox.querySelector(".image-lightbox-close").addEventListener("click", closeImageLightbox);
+imageLightbox.addEventListener("click", (e) => {
+  if (e.target === imageLightbox) closeImageLightbox();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !imageLightbox.hidden) closeImageLightbox();
+});
+
 function typSelect(name, selected) {
   const s = el("select", { name });
   IMAGE_TYP_VALUES.forEach((t) => s.appendChild(el("option", { value: t, textContent: t, selected: t === selected })));
@@ -194,9 +223,14 @@ function renderPairCard(pairId, members, allGruppen) {
     updateBulkBar();
   });
 
+  function zoomableThumb(member, alt, labelText) {
+    const img = el("img", { src: member.image, alt, title: "Klicken zum Vergrößern" });
+    img.addEventListener("click", () => openImageLightbox(member.image, alt));
+    return el("div", { className: "pair-thumb" }, [img, el("span", { className: "pair-thumb-label", textContent: labelText })]);
+  }
   const thumbs = el("div", { className: "pair-thumbs" }, [
-    watermarked ? el("div", { className: "pair-thumb" }, [el("img", { src: watermarked.image, alt: "Mit Wasserzeichen" }), el("span", { className: "pair-thumb-label", textContent: "Mit Wasserzeichen" })]) : null,
-    clean ? el("div", { className: "pair-thumb" }, [el("img", { src: clean.image, alt: "Verkaufsdatei" }), el("span", { className: "pair-thumb-label", textContent: "🛒 Verkaufsdatei" })]) : null,
+    watermarked ? zoomableThumb(watermarked, "Mit Wasserzeichen", "Mit Wasserzeichen") : null,
+    clean ? zoomableThumb(clean, "Verkaufsdatei", "🛒 Verkaufsdatei") : null,
   ].filter(Boolean));
 
   // img.typ ist bei Bildern von vor Einführung dieses Felds NULL - dann grob

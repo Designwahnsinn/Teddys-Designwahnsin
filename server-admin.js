@@ -1354,8 +1354,11 @@ app.patch("/api/admin/orders/:id/designs/:designId/exklusivitaet", requireAuth, 
     return res.status(400).json({ error: "exklusiveGruppen muss ein Array sein" });
   }
   for (const entry of exklusiveGruppen) {
-    if (!entry || typeof entry !== "object" || !db.PREISOPTIONEN_VALUES.includes(entry.bestandteil)) {
-      return res.status(400).json({ error: `Jeder Eintrag braucht einen gültigen bestandteil (${db.PREISOPTIONEN_VALUES.join("/")})` });
+    // Exklusivität gibt es geschäftlich nur für das Design selbst (die
+    // einzelne Design-Art/Farbvariante) - PNG-Dateien und Hintergrund sind
+    // nie exklusiv, die bleiben immer separat für alle Kundinnen kaufbar.
+    if (!entry || typeof entry !== "object" || entry.bestandteil !== "design") {
+      return res.status(400).json({ error: "Exklusivität ist nur für den Bestandteil \"design\" möglich" });
     }
     if (entry.gruppe !== undefined && entry.gruppe !== null && typeof entry.gruppe !== "string") {
       return res.status(400).json({ error: "gruppe muss Text oder leer sein" });
@@ -1376,6 +1379,29 @@ app.patch("/api/admin/orders/:id/designs/:designId/exklusivitaet", requireAuth, 
 // Übersicht "Design-Rechte": alle bisher exklusiv vergebenen Gruppen/Bestandteile.
 app.get("/api/admin/design-lizenzen", requireAuth, (req, res) => {
   res.json(db.getDesignLizenzenUebersicht());
+});
+
+// Rechte-Vergabe außerhalb des Bestellassistenten (z.B. Verkauf persönlich
+// vereinbart, nachträglich erfasst) - siehe db.addManualLizenz.
+app.post("/api/admin/design-lizenzen/manuell", requireAuth, (req, res) => {
+  const { designId, gruppe, kundeName, notiz } = req.body;
+  if (!designId || typeof designId !== "string") {
+    return res.status(400).json({ error: "designId ist erforderlich" });
+  }
+  if (!kundeName || typeof kundeName !== "string" || !kundeName.trim()) {
+    return res.status(400).json({ error: "kundeName ist erforderlich" });
+  }
+  try {
+    const result = db.addManualLizenz({
+      designId,
+      gruppe: gruppe && typeof gruppe === "string" ? gruppe.trim() || null : null,
+      kundeName: kundeName.trim(),
+      notiz: notiz && typeof notiz === "string" ? notiz.trim() : "",
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || "Fehler beim Erfassen der Rechte-Vergabe" });
+  }
 });
 
 // Schritte 3-7: einzelnen Wizard-Schritt abhaken (Reihenfolge wird serverseitig erzwungen)

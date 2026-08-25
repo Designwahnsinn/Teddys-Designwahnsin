@@ -417,16 +417,21 @@ function renderPreisoptionenBlock(order, totalEl) {
     let abgeleiteteGruppe = null; // gesetzt, sobald sich aus Schritt 2 eindeutig eine Gruppe ergibt
     const exklusivError = el("p", { className: "wizard-hint exklusiv-error", hidden: true });
 
+    // Exklusivität gibt es geschäftlich nur für das Design selbst - PNG-Dateien
+    // und Hintergrund sind nie exklusiv, deshalb nur bei "design" ein
+    // exklusivCheckbox (siehe auch Validierung in server-admin.js).
     const bausteine = PREISOPTIONEN.map((opt) => ({
       opt,
       checkbox: el("input", { type: "checkbox", checked: selected.has(opt.key) }),
-      exklusivCheckbox: el("input", { type: "checkbox", className: "exklusiv-checkbox", checked: exklusivBestandteile.has(opt.key), disabled: !selected.has(opt.key) }),
+      exklusivCheckbox: opt.key === "design"
+        ? el("input", { type: "checkbox", className: "exklusiv-checkbox", checked: exklusivBestandteile.has(opt.key), disabled: !selected.has(opt.key) })
+        : null,
     }));
 
     async function saveExklusivitaet() {
       const gruppe = abgeleiteteGruppe !== null ? abgeleiteteGruppe : gruppeInput.value.trim() || null;
       const entries = bausteine
-        .filter((b) => b.checkbox.checked && b.exklusivCheckbox.checked)
+        .filter((b) => b.exklusivCheckbox && b.checkbox.checked && b.exklusivCheckbox.checked)
         .map((b) => ({ gruppe, bestandteil: b.opt.key }));
       const res = await fetch(`/api/admin/orders/${order.id}/designs/${d.id}/exklusivitaet`, {
         method: "PATCH",
@@ -459,13 +464,15 @@ function renderPreisoptionenBlock(order, totalEl) {
         } else {
           checkbox.checked = !checkbox.checked;
         }
-        exklusivCheckbox.disabled = !checkbox.checked;
+        if (exklusivCheckbox) exklusivCheckbox.disabled = !checkbox.checked;
         await saveExklusivitaet();
       });
-      exklusivCheckbox.addEventListener("change", async () => {
-        const ok = await saveExklusivitaet();
-        if (!ok) exklusivCheckbox.checked = !exklusivCheckbox.checked;
-      });
+      if (exklusivCheckbox) {
+        exklusivCheckbox.addEventListener("change", async () => {
+          const ok = await saveExklusivitaet();
+          if (!ok) exklusivCheckbox.checked = !exklusivCheckbox.checked;
+        });
+      }
     });
     gruppeInput.addEventListener("change", () => saveExklusivitaet());
 
@@ -473,8 +480,8 @@ function renderPreisoptionenBlock(order, totalEl) {
       el("label", { className: "variant-dropdown-option" }, [
         checkbox,
         document.createTextNode(` ${opt.label(d)} `),
-        el("label", { className: "exklusiv-toggle" }, [exklusivCheckbox, document.createTextNode(" 🔒 exklusiv")]),
-      ])
+        exklusivCheckbox ? el("label", { className: "exklusiv-toggle" }, [exklusivCheckbox, document.createTextNode(" 🔒 exklusiv")]) : null,
+      ].filter(Boolean))
     );
 
     listEl.appendChild(

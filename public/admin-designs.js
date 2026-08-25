@@ -1,5 +1,6 @@
 const cardsEl = document.getElementById("admin-cards");
 const emptyEl = document.getElementById("admin-empty");
+const searchFilterEl = document.getElementById("filter-search");
 const categoryFilterEl = document.getElementById("filter-category");
 const onlineFilterEl = document.getElementById("filter-online");
 const sortEl = document.getElementById("sort-designs");
@@ -252,6 +253,7 @@ function renderCardEdit(d, body) {
 function sortedFilteredDesigns() {
   const categoryFilter = categoryFilterEl.value;
   const onlineFilter = onlineFilterEl.value;
+  const query = searchFilterEl.value.trim().toLowerCase();
 
   let list = allDesigns.filter((d) => {
     const matchesCategory = categoryFilter === "alle" || d.category === categoryFilter;
@@ -259,7 +261,12 @@ function sortedFilteredDesigns() {
       onlineFilter === "alle" ||
       (onlineFilter === "online" && Boolean(d.online)) ||
       (onlineFilter === "offline" && !d.online);
-    return matchesCategory && matchesOnline;
+    const matchesQuery =
+      !query ||
+      d.name.toLowerCase().includes(query) ||
+      d.id.toLowerCase().includes(query) ||
+      (d.tags || []).some((t) => t.toLowerCase().includes(query));
+    return matchesCategory && matchesOnline && matchesQuery;
   });
 
   list = [...list];
@@ -358,6 +365,7 @@ async function bulkSetOnline(online) {
   loadDesigns();
 }
 
+searchFilterEl.addEventListener("input", renderDesigns);
 categoryFilterEl.addEventListener("change", renderDesigns);
 onlineFilterEl.addEventListener("change", renderDesigns);
 sortEl.addEventListener("change", renderDesigns);

@@ -1368,6 +1368,45 @@ function getDesignLizenzenUebersicht() {
   }));
 }
 
+// Rechte-Vergabe außerhalb des Bestellassistenten - z.B. wenn ein Verkauf
+// persönlich/außerhalb des Systems vereinbart wurde und nachträglich als
+// exklusiv erfasst werden muss. Legt dafür eine minimale, bereits
+// abgeschlossene Bestellung an (nur um die Kundenzuordnung wie bei jeder
+// anderen Rechte-Vergabe nachvollziehbar zu dokumentieren), ohne den
+// vollen Schritt-Ablauf des Wizards zu durchlaufen. Nur "design" ist
+// exklusiv möglich (siehe Validierung in server-admin.js).
+const addManualLizenz = db.transaction(({ designId, gruppe, kundeName, notiz }) => {
+  const design = db.prepare("SELECT id FROM designs WHERE id = ?").get(designId);
+  if (!design) {
+    const err = new Error("Design nicht gefunden");
+    err.status = 404;
+    throw err;
+  }
+  const konflikte = findExklusivKonflikte(designId, [{ gruppe: gruppe || null, bestandteil: "design" }]);
+  if (konflikte.length > 0) {
+    const err = new Error("Diese Design-Variante ist bereits exklusiv vergeben");
+    err.status = 409;
+    throw err;
+  }
+  const now = new Date().toISOString();
+  const orderInfo = db.prepare(`
+    INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status, notiz, access_token, token_created_at)
+    VALUES (?, '', '', '', 'E-Mail', ?, 'Erledigt', ?, ?, ?)
+  `).run(
+    encryptField(kundeName),
+    now,
+    encryptField(notiz || "Manuell erfasste Rechte-Vergabe (außerhalb des Bestellassistenten)"),
+    generateOrderToken(),
+    now
+  );
+  const orderId = orderInfo.lastInsertRowid;
+  db.prepare("INSERT INTO order_designs (order_id, design_id) VALUES (?, ?)").run(orderId, designId);
+  db.prepare(
+    "INSERT INTO design_lizenzen (order_id, design_id, gruppe, bestandteil, exklusiv, createdAt) VALUES (?, ?, ?, 'design', 1, ?)"
+  ).run(orderId, designId, gruppe || null, now);
+  return getDesignLizenzenUebersicht();
+});
+
 module.exports = {
   getDesigns,
   getDesign,
@@ -1396,6 +1435,7 @@ module.exports = {
   findExklusivKonflikte,
   setOrderDesignExklusivitaet,
   getDesignLizenzenUebersicht,
+  addManualLizenz,
   getOrder,
   getOrderByToken,
   confirmOrderTerms,

@@ -22,6 +22,33 @@
     </div>
     <p class="wizard-hint">Wer hat an welcher Design-Variante exklusive Rechte. Wird erst beim Abschließen einer Bestellung eingetragen (siehe Schritt „Kunde hat bestätigt" / Abschluss im Bestell-Wizard), ein offenes Angebot reserviert noch nichts.</p>
 
+    <details class="rechte-manual-details">
+      <summary>+ Rechte manuell erfassen (Verkauf außerhalb des Bestellassistenten)</summary>
+      <form class="upload-form" id="rechte-manual-form">
+        <p class="field-hint">Für Verkäufe, die nicht über den Bestell-Assistenten liefen (z. B. persönlich vereinbart) und nachträglich als exklusiv erfasst werden müssen. Legt automatisch eine abgeschlossene Bestellung als Beleg an.</p>
+        <div>
+          <label for="rechte-manual-design">Design</label>
+          <input type="text" id="rechte-manual-design" list="rechte-manual-design-list" placeholder="TD-ID oder Name …" required>
+          <datalist id="rechte-manual-design-list"></datalist>
+        </div>
+        <div>
+          <label for="rechte-manual-gruppe">Variante/Farbe (optional, leer = ganzes Design ohne Varianten)</label>
+          <input type="text" id="rechte-manual-gruppe" list="rechte-manual-gruppe-list" placeholder="z. B. Blau, Nr. 2 …">
+          <datalist id="rechte-manual-gruppe-list"></datalist>
+        </div>
+        <div>
+          <label for="rechte-manual-kunde">Kundin/Kunde</label>
+          <input type="text" id="rechte-manual-kunde" required>
+        </div>
+        <div>
+          <label for="rechte-manual-notiz">Notiz (optional)</label>
+          <input type="text" id="rechte-manual-notiz" placeholder="z. B. wie und wann vereinbart">
+        </div>
+        <button type="submit">Als exklusiv erfassen</button>
+        <p id="rechte-manual-error" class="edit-error"></p>
+      </form>
+    </details>
+
     <input type="search" id="rechte-search" class="wizard-design-search" placeholder="Nach TD-ID, Design-Name oder Kundin suchen …">
 
     <div class="order-table-wrap">
