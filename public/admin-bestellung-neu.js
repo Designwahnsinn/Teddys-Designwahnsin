@@ -753,7 +753,16 @@ function renderAbschlussUebersicht(order) {
           textContent: `${d.id} · ${d.name} — ${bausteineText} (${formatPrice(d.berechneterPreis)})${exklusiv ? " · 🔒 exklusiv" : ""}`,
         }),
         varianten
-          ? el("ul", { className: "abschluss-variant-list" }, varianten.map((v) => el("li", { textContent: v })))
+          ? el("ul", { className: "abschluss-variant-list" }, varianten.map((v) => {
+              // Nur "Design"-Varianten haben einen eigenen Einzelpreis (siehe
+              // designVariantenAnzahl) - Hintergrund/Motiv-Varianten sind
+              // Teil des jeweiligen Pauschalpreises, bekommen deshalb keinen.
+              const isDesignVariant = /^\d+\.\s*Design\b/.test(v) && preisoptionen.includes("design");
+              return el("li", {}, [
+                document.createTextNode(v),
+                isDesignVariant ? el("span", { className: "abschluss-variant-price", textContent: ` — ${formatPrice(d.price)}` }) : null,
+              ].filter(Boolean));
+            }))
           : null,
       ].filter(Boolean));
     })
