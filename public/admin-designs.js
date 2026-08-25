@@ -165,6 +165,7 @@ function renderCardEdit(d, body) {
   const priceInput = el("input", { type: "number", step: "0.01", min: "0", value: d.price != null ? d.price : "" });
   const pricePngInput = el("input", { type: "number", step: "0.01", min: "0", value: d.pricePng != null ? d.pricePng : "" });
   const priceHintergrundInput = el("input", { type: "number", step: "0.01", min: "0", value: d.priceHintergrund != null ? d.priceHintergrund : "" });
+  const groesseCmInput = el("input", { type: "number", step: "1", min: "1", value: d.groesseCm || 20 });
   const linkInput = el("input", { type: "url", value: d.kaufLink || "", placeholder: "https://…" });
   const instagramInput = el("input", { type: "url", value: d.instagramLink || "", placeholder: "https://instagram.com/p/…" });
   const driveInput = el("input", { type: "url", value: d.driveLink || "", placeholder: "https://drive.google.com/…" });
@@ -184,6 +185,7 @@ function renderCardEdit(d, body) {
         price: priceInput.value,
         pricePng: pricePngInput.value,
         priceHintergrund: priceHintergrundInput.value,
+        groesseCm: groesseCmInput.value,
         kaufLink: linkInput.value.trim(),
         instagramLink: instagramInput.value.trim(),
         driveLink: driveInput.value.trim(),
@@ -235,6 +237,7 @@ function renderCardEdit(d, body) {
     el("label", { textContent: "Preis Design (€)" }), priceInput,
     el("label", { textContent: "Preis PNG-Dateien, alle Motive (€)" }), pricePngInput,
     el("label", { textContent: "Preis Hintergrund (€)" }), priceHintergrundInput,
+    el("label", { textContent: "Größe (cm, quadratisch)" }), groesseCmInput,
     el("label", { textContent: "Kauf-Link" }), linkInput,
     el("label", { textContent: "Instagram-Link" }), instagramInput,
     el("label", { textContent: "Google-Drive-Link (intern)" }), driveInput,

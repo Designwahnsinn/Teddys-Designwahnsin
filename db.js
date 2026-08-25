@@ -274,6 +274,11 @@ ensureColumn("designs", "serverProcessingMs", "INTEGER NOT NULL DEFAULT 0");
 // design_lizenzen-Tabelle) übernimmt stattdessen die dortige, feinere
 // Rechte-Erfassung pro Gruppe/Bestandteil diese Aufgabe.
 ensureColumn("designs", "maxVerkaeufe", "INTEGER");
+// Nicht jedes Design ist 20x20cm - die Kantenlänge in cm bestimmt, wie viele
+// Pixel bei 300dpi für einen scharfen Druck nötig sind (siehe
+// minPrintDimensionPx in server-admin.js). 20 als Standardwert für
+// bestehende Designs, damit sich an deren Qualitätsprüfung nichts ändert.
+ensureColumn("designs", "groesseCm", "INTEGER NOT NULL DEFAULT 20");
 // Gestaffelte Preise statt eines einzigen Werts: "price" bleibt der
 // Design-Preis (jetzt Standard 10€ statt vorher optional), dazu die
 // PNG-Dateien (alle Motive einzeln, Standard 6€) und der Hintergrund separat
@@ -607,8 +612,8 @@ function nextId() {
 function addDesign(design) {
   const onlineFlag = design.online === undefined ? 1 : (design.online ? 1 : 0);
   db.prepare(`
-    INSERT INTO designs (id, name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, image, online, onlineSetAt, uploadDurationMs, serverProcessingMs, verkaufszaehler, createdAt)
-    VALUES (@id, @name, @description, @category, @price, @pricePng, @priceHintergrund, @status, @kaufLink, @driveLink, @instagramLink, @image, @online, @onlineSetAt, @uploadDurationMs, @serverProcessingMs, 0, @createdAt)
+    INSERT INTO designs (id, name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, image, online, onlineSetAt, uploadDurationMs, serverProcessingMs, groesseCm, verkaufszaehler, createdAt)
+    VALUES (@id, @name, @description, @category, @price, @pricePng, @priceHintergrund, @status, @kaufLink, @driveLink, @instagramLink, @image, @online, @onlineSetAt, @uploadDurationMs, @serverProcessingMs, @groesseCm, 0, @createdAt)
   `).run({
     id: design.id,
     name: design.name,
@@ -627,6 +632,7 @@ function addDesign(design) {
     onlineSetAt: onlineFlag ? design.createdAt : null,
     uploadDurationMs: design.uploadDurationMs || 0,
     serverProcessingMs: design.serverProcessingMs || 0,
+    groesseCm: design.groesseCm || 20,
     createdAt: design.createdAt,
   });
   db.prepare(`
@@ -646,7 +652,7 @@ function addUploadTiming(id, { uploadDurationMs, serverProcessingMs }) {
     .run(uploadDurationMs || 0, serverProcessingMs || 0, id);
 }
 
-const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "pricePng", "priceHintergrund", "status", "kaufLink", "driveLink", "instagramLink", "online"];
+const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "pricePng", "priceHintergrund", "status", "kaufLink", "driveLink", "instagramLink", "online", "groesseCm"];
 
 function updateDesign(id, changes) {
   const existing = db.prepare("SELECT * FROM designs WHERE id = ?").get(id);

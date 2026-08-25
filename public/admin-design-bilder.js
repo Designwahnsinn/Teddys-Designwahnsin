@@ -431,6 +431,15 @@ async function init() {
 
   titleEl.textContent = design ? `Bilder verwalten – ${design.name}` : "Bilder verwalten";
 
+  // Mindestauflösung im Hinweistext an die tatsächliche Größe dieses Designs
+  // anpassen (Standard 20cm, kann pro Design abweichen).
+  const groesseHint = document.getElementById("groesse-hint");
+  if (design && groesseHint) {
+    const cm = design.groesseCm || 20;
+    const minPx = Math.round((cm / 2.54) * 300);
+    groesseHint.textContent = `Größe: ${cm} × ${cm} cm bei 300 dpi (≈ ${minPx} × ${minPx} Pixel)`;
+  }
+
   loadImages();
 }
 

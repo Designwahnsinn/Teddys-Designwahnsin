@@ -29,6 +29,20 @@ if (descriptionField && descriptionCount) {
   updateCount();
 }
 
+// Mindestauflösung live nachrechnen, wenn die Größe vom 20x20cm-Standard
+// abweicht - dieselbe Formel wie minPrintDimensionPx() in server-admin.js.
+const groesseField = document.getElementById("groesseCm");
+const groesseHint = document.getElementById("groesse-hint");
+if (groesseField && groesseHint) {
+  const updateGroesseHint = () => {
+    const cm = Number(groesseField.value) || 20;
+    const minPx = Math.round((cm / 2.54) * 300);
+    groesseHint.textContent = `Größe: ${cm} × ${cm} cm bei 300 dpi (≈ ${minPx} × ${minPx} Pixel)`;
+  };
+  groesseField.addEventListener("input", updateGroesseHint);
+  updateGroesseHint();
+}
+
 function el(tag, props, children) {
   const node = document.createElement(tag);
   Object.assign(node, props);

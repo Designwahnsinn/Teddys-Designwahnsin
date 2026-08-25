@@ -217,20 +217,27 @@ async function cleanupTempFiles(files) {
   await Promise.all((files || []).map((f) => fs.promises.unlink(f.path).catch(() => {})));
 }
 
-// Empfohlene Mindestauflösung für gestochen scharfen Druck: 20x20cm bei
-// 300dpi (Standard-Druckgröße laut Nutzer) = ca. 2362x2362 Pixel.
-const MIN_PRINT_DIMENSION_PX = 2362;
+// Nicht jedes Design ist 20x20cm (Standard) - die Mindestauflösung für
+// gestochen scharfen Druck bei 300dpi hängt von der tatsächlichen Kantenlänge
+// des jeweiligen Designs ab (design.groesseCm, Standardwert 20).
+const DEFAULT_GROESSE_CM = 20;
+const PRINT_DPI = 300;
+function minPrintDimensionPx(groesseCm) {
+  return Math.round(((groesseCm || DEFAULT_GROESSE_CM) / 2.54) * PRINT_DPI);
+}
 
-function checkImageQuality(width, height) {
-  if (width < MIN_PRINT_DIMENSION_PX || height < MIN_PRINT_DIMENSION_PX) {
-    return `Auflösung nur ${width}×${height}px - für gestochen scharfen Druck (20×20cm bei 300dpi) werden mind. ${MIN_PRINT_DIMENSION_PX}×${MIN_PRINT_DIMENSION_PX}px empfohlen.`;
+function checkImageQuality(width, height, groesseCm) {
+  const minPx = minPrintDimensionPx(groesseCm);
+  if (width < minPx || height < minPx) {
+    const cm = groesseCm || DEFAULT_GROESSE_CM;
+    return `Auflösung nur ${width}×${height}px - für gestochen scharfen Druck (${cm}×${cm}cm bei ${PRINT_DPI}dpi) werden mind. ${minPx}×${minPx}px empfohlen.`;
   }
   return null;
 }
 
 // Canva-Exporte kommen oft mit mehreren tausend Pixeln Kantenlänge, weil sie
-// auf die Druckauflösung (min. 2362x2362px, siehe MIN_PRINT_DIMENSION_PX)
-// ausgelegt sind - für die Website-Anzeige unnötig groß und langsam. Deshalb
+// auf die Druckauflösung ausgelegt sind (siehe minPrintDimensionPx) - für die
+// Website-Anzeige unnötig groß und langsam. Deshalb
 // zusätzlich zum unangetasteten Original (Druck-/Verkaufsdatei) ein
 // verkleinertes WebP für die Web-Ansichten.
 const WEB_PREVIEW_MAX_DIMENSION_PX = 1600;
@@ -329,7 +336,7 @@ function describeUploadError(err, context) {
 // es hier nur eine Zielvariante (die zu ersetzende Zeile war entweder schon
 // die Wasserzeichen- oder die Verkaufsdatei-Zeile), der Aufwand einer
 // gemeinsamen Verkleinerung für zwei Varianten lohnt hier nicht.
-async function persistUploadedImage(file, { watermark = false } = {}) {
+async function persistUploadedImage(file, { watermark = false, groesseCm } = {}) {
   const detected = await FileType.fromFile(file.path);
   if (!detected || !ALLOWED_IMAGE_MIME_TYPES.includes(detected.mime)) {
     const err = new Error("Datei-Inhalt entspricht keinem erlaubten Bildformat");
@@ -337,7 +344,7 @@ async function persistUploadedImage(file, { watermark = false } = {}) {
     throw err;
   }
   const { width, height } = await imageSizeFromFile(file.path);
-  const qualityWarning = checkImageQuality(width, height);
+  const qualityWarning = checkImageQuality(width, height, groesseCm);
 
   if (watermark) {
     const resizedBuffer = await sharp(file.path, { limitInputPixels: SHARP_MAX_INPUT_PIXELS })
@@ -366,7 +373,7 @@ async function persistUploadedImage(file, { watermark = false } = {}) {
 // für den bisherigen doppelten manuellen Upload. Format/Auflösung werden nur
 // einmal geprüft und nur einmal auf Web-Größe verkleinert (nicht wie früher
 // pro Ansicht erneut), aus dem Ergebnis werden beide Web-Ansichten kodiert.
-async function persistUploadedImagePair(file) {
+async function persistUploadedImagePair(file, groesseCm) {
   const detected = await FileType.fromFile(file.path);
   if (!detected || !ALLOWED_IMAGE_MIME_TYPES.includes(detected.mime)) {
     const err = new Error("Datei-Inhalt entspricht keinem erlaubten Bildformat");
@@ -374,7 +381,7 @@ async function persistUploadedImagePair(file) {
     throw err;
   }
   const { width, height } = await imageSizeFromFile(file.path);
-  const qualityWarning = checkImageQuality(width, height);
+  const qualityWarning = checkImageQuality(width, height, groesseCm);
 
   const cleanFilename = `${crypto.randomUUID()}.${detected.ext}`;
   await fs.promises.copyFile(file.path, path.join(SALES_DIR, cleanFilename));
@@ -564,6 +571,12 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
   if (status && !STATUS_VALUES.includes(status)) {
     return res.status(400).json({ error: "Ungültiger Status" });
   }
+  // Kantenlänge in cm - bestimmt die Mindestauflösung für die
+  // Qualitätsprüfung (siehe minPrintDimensionPx). Nicht jedes Design ist 20x20cm.
+  const groesseCm = req.body.groesseCm ? Number(req.body.groesseCm) : DEFAULT_GROESSE_CM;
+  if (!Number.isFinite(groesseCm) || groesseCm <= 0) {
+    return res.status(400).json({ error: "Größe muss eine Zahl größer 0 sein" });
+  }
   // Kommt über ein <form>/FormData (wegen Datei-Upload) als JSON-String statt
   // als natives Mehrfachfeld - siehe buildTagInput() in admin-neu.js.
   let tags = [];
@@ -583,7 +596,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
     // (ohne gültiges Hauptbild kein Design) - weitere Dateien unten laufen
     // dagegen als Teilfehler, ein einzelnes schlechtes Bild soll die anderen
     // neun nicht verhindern.
-    const mainPair = await persistUploadedImagePair(mainFile);
+    const mainPair = await persistUploadedImagePair(mainFile, groesseCm);
     // Verknüpft die Wasserzeichen- und Verkaufsdatei-Zeile dieser Originaldatei
     // (Schritt 8) - damit lassen sie sich in der Bilder-Verwaltung als eine
     // Kachel mit gemeinsamem Typ/Bezeichnung bearbeiten.
@@ -605,6 +618,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
       online: req.body.online !== undefined,
       qualityWarning: mainPair.qualityWarning,
       pairId: mainPairId,
+      groesseCm,
       tags,
       createdAt: new Date().toISOString(),
     });
@@ -643,7 +657,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
     // tatsächlichen Auswahlreihenfolge überein.
     const extraResults = await mapWithConcurrency(extraFiles, UPLOAD_CONCURRENCY, async (file) => {
       try {
-        const pair = await persistUploadedImagePair(file);
+        const pair = await persistUploadedImagePair(file, groesseCm);
         return { ok: true, pair };
       } catch (err) {
         return { ok: false, dateiname: truncateFileName(file.originalname), grund: describeUploadError(err, "Design anlegen") };
@@ -705,7 +719,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
 });
 
 app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
-  const { name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, online, tags } = req.body;
+  const { name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, online, tags, groesseCm } = req.body;
 
   const changes = {};
   if (name !== undefined) {
@@ -732,6 +746,13 @@ app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
   if (driveLink !== undefined) changes.driveLink = driveLink;
   if (instagramLink !== undefined) changes.instagramLink = instagramLink;
   if (online !== undefined) changes.online = Boolean(online) ? 1 : 0;
+  if (groesseCm !== undefined) {
+    const cm = Number(groesseCm);
+    if (!Number.isFinite(cm) || cm <= 0) {
+      return res.status(400).json({ error: "Größe muss eine Zahl größer 0 sein" });
+    }
+    changes.groesseCm = cm;
+  }
   if (tags !== undefined) {
     if (!Array.isArray(tags) || !tags.every((t) => typeof t === "string")) {
       return res.status(400).json({ error: "tags muss ein Array aus Strings sein" });
@@ -855,7 +876,7 @@ app.post("/api/admin/designs/:id/images", requireAuth, upload.array("images", 30
       try {
         // Jede hochgeladene Originaldatei ergibt automatisch beide Varianten
         // (mit + ohne Wasserzeichen) - kein wasserzeichen-Auswahlfeld mehr nötig.
-        const pair = await persistUploadedImagePair(file);
+        const pair = await persistUploadedImagePair(file, design.groesseCm);
         return { ok: true, pair, typ, imageBezeichnung };
       } catch (err) {
         return { ok: false, dateiname: truncateFileName(file.originalname), grund: describeUploadError(err, "Bild-Upload") };
@@ -1000,10 +1021,11 @@ app.post("/api/admin/designs/:id/images/:imageId/replace", requireAuth, upload.s
   try {
     const existing = db.getDesignImages(req.params.id).find((img) => String(img.id) === req.params.imageId);
     if (!existing) return res.status(404).json({ error: "Bild nicht gefunden" });
+    const design = db.getDesign(req.params.id);
     // Ersatzdatei ist immer die reine Originaldatei - Wasserzeichen wird nur
     // erneut aufgelegt, wenn die zu ersetzende Zeile ohnehin die
     // "Mit Wasserzeichen"-Ansicht war.
-    const persisted = await persistUploadedImage(req.file, { watermark: Boolean(existing.wasserzeichen) });
+    const persisted = await persistUploadedImage(req.file, { watermark: Boolean(existing.wasserzeichen), groesseCm: design?.groesseCm });
     const result = db.replaceDesignImage(req.params.imageId, {
       image: storedPath(persisted.dir, persisted.filename),
       previewImage: persisted.previewFilename ? storedPath(persisted.previewDir, persisted.previewFilename) : null,
@@ -1115,8 +1137,9 @@ app.post("/api/admin/designs/:id/images/pair/:pairId/replace", requireAuth, uplo
     if (members.length === 0) return res.status(404).json({ error: "Bild-Paar nicht gefunden" });
     const existingWatermarked = members.find((m) => m.wasserzeichen);
     const existingClean = members.find((m) => !m.wasserzeichen);
+    const design = db.getDesign(req.params.id);
 
-    const pair = await persistUploadedImagePair(req.file);
+    const pair = await persistUploadedImagePair(req.file, design?.groesseCm);
     const replacements = [];
     if (existingWatermarked) {
       replacements.push(
