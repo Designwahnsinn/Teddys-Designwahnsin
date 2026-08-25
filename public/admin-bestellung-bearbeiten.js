@@ -148,6 +148,30 @@ function render(order, allDesigns) {
     statusSelect.appendChild(el("option", { value: s, textContent: s, selected: s === order.status }));
   });
 
+  // --- Rabatt (gesamte Bestellung, nicht pro Design) ---
+  const rabattTypSelect = el("select");
+  [["", "Kein Rabatt"], ["prozent", "Prozent"], ["euro", "Euro"]].forEach(([value, label]) => {
+    rabattTypSelect.appendChild(el("option", { value, textContent: label, selected: (order.rabatt_typ || "") === value }));
+  });
+  const rabattWertInput = el("input", {
+    type: "number",
+    step: "0.01",
+    min: "0",
+    value: order.rabatt_wert != null ? order.rabatt_wert : "",
+    disabled: !order.rabatt_typ,
+  });
+  rabattTypSelect.addEventListener("change", () => {
+    rabattWertInput.disabled = !rabattTypSelect.value;
+    if (!rabattTypSelect.value) rabattWertInput.value = "";
+  });
+  const totalSummary = el("p", { className: "wizard-hint" }, [
+    document.createTextNode(
+      order.rabattBetrag > 0
+        ? `Zwischensumme: ${formatPrice(order.subtotal)} · Rabatt: −${formatPrice(order.rabattBetrag)} · Gesamtsumme: ${formatPrice(order.gesamtBetrag)}`
+        : `Gesamtsumme: ${formatPrice(order.gesamtBetrag)}`
+    ),
+  ]);
+
   // --- Notiz (v.a. für Designs, die es noch nicht im System gibt, z.B. nur auf Instagram) ---
   const notizInput = el("textarea", {
     rows: 3,
@@ -212,7 +236,9 @@ function render(order, allDesigns) {
       kontakt_praeferenz: praeferenzSelect.value,
       status: statusSelect.value,
       notiz: notizInput.value,
+      rabatt_typ: rabattTypSelect.value || null,
     };
+    if (rabattTypSelect.value) patchBody.rabatt_wert = Number(rabattWertInput.value) || 0;
     stepCheckboxes.forEach((cb, key) => { patchBody[key] = cb.checked; });
 
     const varianten = Object.fromEntries(
@@ -334,6 +360,12 @@ function render(order, allDesigns) {
     el("label", { textContent: "Status" }), statusSelect,
     el("h2", { textContent: "Zugeordnete Designs" }),
     designList,
+    el("div", { className: "rabatt-row" }, [
+      el("label", { textContent: "Rabatt (gesamte Bestellung):" }),
+      rabattTypSelect,
+      rabattWertInput,
+    ]),
+    totalSummary,
     el("label", { textContent: "Notiz (auch für Designs, die es noch nicht im System gibt)" }), notizInput,
     el("h2", { textContent: "Schritte" }),
     el("p", { className: "wizard-hint", textContent: "\"Ist bezahlt\" neu aktivieren gibt Dateien + Rechnung automatisch für den Kunden-Download frei (siehe Order-Portal-Bereich unten)." }),

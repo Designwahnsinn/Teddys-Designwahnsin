@@ -380,8 +380,75 @@ async function callStep(order, stepKey) {
   return data;
 }
 
-function totalPrice(order) {
-  return order.designs.reduce((sum, d) => sum + (d.berechneterPreis ?? d.price ?? 0), 0);
+// subtotal/rabattBetrag/gesamtBetrag kommen fertig berechnet vom Server
+// (siehe attachOrderTotals in db.js) - Rabatt gilt für die gesamte
+// Bestellung, nicht pro Design. Zwischensumme/Rabatt nur zeigen, wenn
+// tatsächlich ein Rabatt gesetzt ist, sonst wäre es für den Normalfall
+// redundant zur Gesamtsumme.
+function renderTotalBlock(order, totalEl) {
+  totalEl.innerHTML = "";
+  if (order.rabattBetrag > 0) {
+    const rabattLabel =
+      order.rabatt_typ === "prozent" ? `Rabatt (${order.rabatt_wert}%)` : "Rabatt";
+    totalEl.append(
+      el("p", { className: "wizard-hint", textContent: `Zwischensumme: ${formatPrice(order.subtotal)}` }),
+      el("p", { className: "wizard-hint", textContent: `${rabattLabel}: −${formatPrice(order.rabattBetrag)}` })
+    );
+  }
+  totalEl.appendChild(el("p", { className: "wizard-total", textContent: `Gesamtsumme: ${formatPrice(order.gesamtBetrag)}` }));
+}
+
+// Rabatt für die gesamte Bestellung (nicht pro Design) - Prozent oder fester
+// Euro-Betrag. Wird direkt beim Ändern gespeichert (kein separater
+// Speichern-Button), damit die Gesamtsumme sofort mitzieht.
+function renderRabattBlock(order, totalEl) {
+  const typSelect = el("select");
+  [["", "Kein Rabatt"], ["prozent", "Prozent"], ["euro", "Euro"]].forEach(([value, label]) => {
+    typSelect.appendChild(el("option", { value, textContent: label, selected: (order.rabatt_typ || "") === value }));
+  });
+  const wertInput = el("input", {
+    type: "number",
+    step: "0.01",
+    min: "0",
+    value: order.rabatt_wert != null ? order.rabatt_wert : "",
+    placeholder: "0",
+    disabled: !order.rabatt_typ,
+  });
+  const errorMsg = el("p", { className: "wizard-error" });
+
+  async function save() {
+    const rabatt_typ = typSelect.value || null;
+    const body = rabatt_typ
+      ? { rabatt_typ, rabatt_wert: Number(wertInput.value) || 0 }
+      : { rabatt_typ: null };
+    const res = await fetch(`/api/admin/orders/${order.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      errorMsg.textContent = data.error || "Fehler beim Speichern des Rabatts.";
+      return;
+    }
+    errorMsg.textContent = "";
+    Object.assign(order, data);
+    renderTotalBlock(order, totalEl);
+  }
+
+  typSelect.addEventListener("change", () => {
+    wertInput.disabled = !typSelect.value;
+    if (!typSelect.value) wertInput.value = "";
+    save();
+  });
+  wertInput.addEventListener("change", save);
+
+  return el("div", { className: "rabatt-row" }, [
+    el("label", { textContent: "Rabatt (gesamte Bestellung):" }),
+    typSelect,
+    wertInput,
+    errorMsg,
+  ]);
 }
 
 const PREISOPTIONEN = [
@@ -482,8 +549,8 @@ function renderPreisoptionenBlock(order, totalEl) {
         });
         if (res.ok) {
           const updated = await res.json();
-          order.designs = updated.designs;
-          totalEl.textContent = `Gesamtsumme: ${formatPrice(totalPrice(order))}`;
+          Object.assign(order, updated);
+          renderTotalBlock(order, totalEl);
         } else {
           checkbox.checked = !checkbox.checked;
         }
@@ -657,12 +724,14 @@ function renderStepAction(order, stepKey) {
     renderForOrder(data);
   };
   if (stepKey === "schritt_rechnung") {
-    const totalEl = el("p", { className: "wizard-total", textContent: `Gesamtsumme: ${formatPrice(totalPrice(order))}` });
+    const totalEl = el("div", {});
+    renderTotalBlock(order, totalEl);
     panelEl.append(
       el("h2", { textContent: "Schritt 3 · Angebot/Rechnung erstellen" }),
       el("p", { textContent: `Kunde: ${order.kunde_name} (${order.kunde_email})` }),
       el("p", { className: "wizard-hint", textContent: "Welche Preisbausteine soll die Kundin bekommen? Mehrfachauswahl möglich, addiert sich zur Gesamtsumme." }),
       renderPreisoptionenBlock(order, totalEl),
+      renderRabattBlock(order, totalEl),
       totalEl,
       el("p", { className: "wizard-hint", textContent: "Rechnung mit diesen Eckdaten manuell in sevdesk anlegen." }),
       renderFileUploadBlock(order, { field: "angebot_datei", label: "Angebot (optional)", route: "angebot" }),
@@ -711,9 +780,11 @@ function renderStepAction(order, stepKey) {
         paidCheckbox.disabled = false;
       }
     });
+    const totalEl = el("div", {});
+    renderTotalBlock(order, totalEl);
     panelEl.append(
       el("h2", { textContent: "Schritt 5 · Bezahlung erhalten" }),
-      el("p", { textContent: `Gesamtsumme: ${formatPrice(totalPrice(order))}` }),
+      totalEl,
       el("p", { className: "wizard-hint", textContent: "Sobald der Zahlungseingang bestätigt ist, hier ankreuzen - Dateien und Rechnung werden dann automatisch für den Kunden-Download freigegeben, kein separater Schritt nötig." }),
       errorMsg,
       el("label", { className: "wizard-design-row" }, [paidCheckbox, document.createTextNode(" Zahlung erhalten")])
@@ -775,10 +846,13 @@ function renderAbschlussUebersicht(order) {
         ? "🚫 Möchte NICHT auf Webseite/Instagram genannt werden"
         : "❔ Keine Angabe zur Nennung auf Webseite/Instagram";
 
+  const totalEl = el("div", {});
+  renderTotalBlock(order, totalEl);
+
   return el("div", { className: "wizard-panel-hint" }, [
     el("h3", { textContent: "Was der Kunde kauft" }),
     designListEl,
-    el("p", { className: "wizard-total", textContent: `Gesamtsumme: ${formatPrice(totalPrice(order))}` }),
+    totalEl,
     el("h3", { textContent: "Bestätigungen" }),
     el("p", { textContent: `Bestellung angelegt am ${new Date(order.bestelldatum).toLocaleString("de-DE")}` }),
     el("p", {

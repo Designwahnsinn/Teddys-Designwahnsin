@@ -1444,7 +1444,7 @@ app.post("/api/admin/orders/:id/complete", requireAuth, (req, res) => {
 // Freie Bearbeitung einer bestehenden Bestellung: Kunde, Status und Schritte
 // unabhängig von der Wizard-Reihenfolge änderbar, auch bei "Erledigt".
 app.patch("/api/admin/orders/:id", requireAuth, (req, res) => {
-  const { kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, status, notiz } = req.body;
+  const { kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, status, notiz, rabatt_typ, rabatt_wert } = req.body;
   const changes = {};
 
   if (kunde_name !== undefined) {
@@ -1470,6 +1470,25 @@ app.patch("/api/admin/orders/:id", requireAuth, (req, res) => {
     changes.status = status;
   }
   if (notiz !== undefined) changes.notiz = notiz;
+  // Rabatt gilt für die gesamte Bestellung - rabatt_typ null räumt ihn wieder
+  // ab (kommt vom Client z.B. bei "Kein Rabatt" ausgewählt).
+  if (rabatt_typ !== undefined) {
+    if (rabatt_typ !== null && !db.RABATT_TYP_VALUES.includes(rabatt_typ)) {
+      return res.status(400).json({ error: `rabatt_typ muss null oder ${db.RABATT_TYP_VALUES.join("/")} sein` });
+    }
+    changes.rabatt_typ = rabatt_typ;
+    if (rabatt_typ === null) changes.rabatt_wert = null;
+  }
+  if (rabatt_wert !== undefined && rabatt_typ !== null) {
+    const wert = Number(rabatt_wert);
+    if (!Number.isFinite(wert) || wert < 0) {
+      return res.status(400).json({ error: "rabatt_wert muss eine Zahl >= 0 sein" });
+    }
+    if (rabatt_typ === "prozent" && wert > 100) {
+      return res.status(400).json({ error: "rabatt_wert (Prozent) darf nicht über 100 liegen" });
+    }
+    changes.rabatt_wert = wert;
+  }
   for (const step of db.ORDER_STEPS) {
     if (req.body[step] !== undefined) changes[step] = Boolean(req.body[step]);
   }
@@ -1689,7 +1708,12 @@ app.get("/api/public/order/:token", publicCors, orderPortalViewLimiter, (req, re
   res.json({
     kunde_name: order.kunde_name,
     designs,
-    total: designs.reduce((sum, d) => sum + (d.price || 0), 0),
+    // order.subtotal/rabattBetrag/gesamtBetrag kommen bereits fertig
+    // berechnet aus getOrderByToken() (siehe attachOrderTotals in db.js) -
+    // Rabatt gilt für die gesamte Bestellung, nicht pro Design.
+    subtotal: order.subtotal,
+    rabatt: order.rabatt_typ ? { typ: order.rabatt_typ, wert: order.rabatt_wert, betrag: order.rabattBetrag } : null,
+    total: order.gesamtBetrag,
     confirmed: !!order.terms_confirmed_at,
     confirmedAt: order.terms_confirmed_at,
     downloadFreigegeben: !!order.download_freigegeben,

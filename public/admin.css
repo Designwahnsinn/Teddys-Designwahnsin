@@ -642,6 +642,11 @@
 .abschluss-variant-list { color: var(--muted); font-size: 0.9rem; margin: 0.2rem 0 0; padding-left: 1.2rem; }
 .abschluss-variant-list li { margin: 0.1rem 0; }
 .abschluss-variant-price { font-weight: 600; }
+
+.rabatt-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.8rem 0; }
+.rabatt-row label { font-weight: 600; font-size: 0.9rem; }
+.rabatt-row select, .rabatt-row input { padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; }
+.rabatt-row input { width: 90px; }
 .wizard-panel-hint {
   background: var(--bg);
   border: 1px solid var(--border);

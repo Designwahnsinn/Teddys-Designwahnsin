@@ -30,6 +30,7 @@
 .order-design-price { color: var(--muted); white-space: nowrap; }
 
 .order-total { font-weight: 700; font-size: 1.1rem; text-align: right; margin-top: 0.5rem; }
+.order-subtotal { color: var(--muted); font-size: 0.9rem; text-align: right; }
 
 .order-confirm-form,
 .order-download-section,

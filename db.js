@@ -394,6 +394,13 @@ ensureColumn("orders", "nennung_erlaubt", "INTEGER");
 // Nachweis wie terms_text_snapshot: welcher genaue Fragetext zugestimmt
 // wurde, falls der Text später mal angepasst wird.
 ensureColumn("orders", "nennung_text_snapshot", "TEXT");
+// Rabatt gilt für die gesamte Bestellung (nicht pro Design) - Prozent oder
+// fester Euro-Betrag. Nur fürs eigene System nachgebildet (die tatsächliche
+// Rechnung mit Rabatt entsteht weiterhin manuell in sevdesk), sonst würden
+// Bestellungen-Übersicht und Kunden-Bestätigungsseite einen zu hohen
+// Gesamtpreis zeigen. rabatt_typ NULL = kein Rabatt.
+ensureColumn("orders", "rabatt_typ", "TEXT");
+ensureColumn("orders", "rabatt_wert", "REAL");
 
 // Wasserzeichen und Hintergrund-Variante waren früher eine einzige flache
 // Kategorie ("Mit Wasserzeichen" / "Ohne Wasserzeichen" / "Hintergrund-Variante"),
@@ -1187,10 +1194,26 @@ function designsWithVarianten(orderId) {
   });
 }
 
+// Rabatt gilt für die gesamte Bestellung (Summe über alle Designs), nicht
+// pro Design - deshalb hier und nicht in designsWithVarianten() berechnet.
+function berechneRabattBetrag(subtotal, rabattTyp, rabattWert) {
+  if (!rabattTyp || !rabattWert) return 0;
+  if (rabattTyp === "prozent") return subtotal * (rabattWert / 100);
+  if (rabattTyp === "euro") return rabattWert;
+  return 0;
+}
+
+function attachOrderTotals(order, designs) {
+  const subtotal = designs.reduce((sum, d) => sum + (d.berechneterPreis || 0), 0);
+  const rabattBetrag = Math.min(berechneRabattBetrag(subtotal, order.rabatt_typ, order.rabatt_wert), subtotal);
+  const gesamtBetrag = Math.max(subtotal - rabattBetrag, 0);
+  return { ...order, designs, subtotal, rabattBetrag, gesamtBetrag };
+}
+
 function getOrder(id) {
   const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
   if (!order) return null;
-  return decryptOrderRow({ ...order, designs: designsWithVarianten(id) });
+  return decryptOrderRow(attachOrderTotals(order, designsWithVarianten(id)));
 }
 
 // --- Order-Portal (Kunden-Bestätigungsseite) ---
@@ -1198,7 +1221,7 @@ function getOrder(id) {
 function getOrderByToken(token) {
   const order = db.prepare("SELECT * FROM orders WHERE access_token = ?").get(token);
   if (!order) return null;
-  return decryptOrderRow({ ...order, designs: designsWithVarianten(order.id) });
+  return decryptOrderRow(attachOrderTotals(order, designsWithVarianten(order.id)));
 }
 
 // nennungErlaubt: true/false = Kundin hat sich beim Bestätigen entschieden,
@@ -1276,6 +1299,7 @@ function listOrders(status) {
 }
 
 const ORDER_STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt", "Storniert"];
+const RABATT_TYP_VALUES = ["prozent", "euro"];
 const ORDER_UPDATE_FIELDS = [
   "kunde_name",
   "kunde_email",
@@ -1284,6 +1308,8 @@ const ORDER_UPDATE_FIELDS = [
   "kontakt_praeferenz",
   "status",
   "notiz",
+  "rabatt_typ",
+  "rabatt_wert",
   ...ORDER_STEPS,
 ];
 const KONTAKT_PRAEFERENZ_VALUES = ["E-Mail", "WhatsApp"];
@@ -1531,6 +1557,7 @@ module.exports = {
   deleteTag,
   ORDER_STEPS,
   ORDER_STATUS_VALUES,
+  RABATT_TYP_VALUES,
   KONTAKT_PRAEFERENZ_VALUES,
   createOrder,
   setOrderDesigns,

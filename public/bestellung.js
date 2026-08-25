@@ -171,11 +171,20 @@ function renderAngebotSection(order) {
 function render(order) {
   contentEl.innerHTML = "";
 
+  // Rabatt gilt für die gesamte Bestellung - Zwischensumme/Rabatt-Zeile nur
+  // zeigen, wenn tatsächlich einer vergeben wurde, sonst wäre es für den
+  // Normalfall redundant zur Gesamtsumme.
   const summary = el("section", { className: "order-summary" }, [
     el("p", { textContent: `Hallo ${order.kunde_name}, hier ist eine Übersicht deiner Bestellung:` }),
     renderDesignsList(order),
+    order.rabatt
+      ? el("p", { className: "order-subtotal", textContent: `Zwischensumme: ${formatPrice(order.subtotal)}` })
+      : null,
+    order.rabatt
+      ? el("p", { className: "order-subtotal", textContent: `Rabatt${order.rabatt.typ === "prozent" ? ` (${order.rabatt.wert}%)` : ""}: −${formatPrice(order.rabatt.betrag)}` })
+      : null,
     el("p", { className: "order-total", textContent: `Gesamtsumme: ${formatPrice(order.total)}` }),
-  ]);
+  ].filter(Boolean));
   contentEl.appendChild(summary);
 
   const angebot = renderAngebotSection(order);
