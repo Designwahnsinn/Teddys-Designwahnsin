@@ -215,11 +215,29 @@ db.exec(`
     createdAt TEXT NOT NULL
   );
 
+  -- Rechte-Nachweis für Farbexklusive Varianten: hält pro abgeschlossener
+  -- Bestellung fest, welche Gruppe (Farbvariante) und welcher Preisbaustein
+  -- (design/png/hintergrund - siehe PREISOPTIONEN_VALUES) gekauft wurde und ob
+  -- exklusiv. Exklusivität gilt pro Bestandteil, nicht pauschal für die ganze
+  -- Gruppe - ein Hintergrund kann exklusiv an eine Kundin gehen, während
+  -- Design und PNG derselben Gruppe für andere frei bleiben. gruppe NULL =
+  -- Design ohne Varianten-Gruppen (siehe design_images.gruppe unten).
+  CREATE TABLE IF NOT EXISTS design_lizenzen (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    design_id TEXT NOT NULL REFERENCES designs(id),
+    gruppe TEXT,
+    bestandteil TEXT NOT NULL,
+    exklusiv INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_designs_category ON designs(category);
   CREATE INDEX IF NOT EXISTS idx_designs_status ON designs(status);
   CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
   CREATE INDEX IF NOT EXISTS idx_design_images_design ON design_images(design_id);
   CREATE INDEX IF NOT EXISTS idx_design_tags_tag ON design_tags(tag_id);
+  CREATE INDEX IF NOT EXISTS idx_design_lizenzen_design ON design_lizenzen(design_id, gruppe);
 `);
 
 // Für bereits existierende Datenbanken: CREATE TABLE IF NOT EXISTS legt keine
@@ -250,6 +268,12 @@ ensureColumn("designs", "onlineSetAt", "TEXT");
 // (onlineSetAt - createdAt) minus uploadDurationMs, reine Rechnung bei der Auswertung.
 ensureColumn("designs", "uploadDurationMs", "INTEGER NOT NULL DEFAULT 0");
 ensureColumn("designs", "serverProcessingMs", "INTEGER NOT NULL DEFAULT 0");
+// Upload-Plan Schritt 9 (Grundlage, Oberfläche folgt später): wie oft ein
+// Design ohne eigene Varianten-Gruppen verkauft werden darf. NULL =
+// unbegrenzt. Für Designs MIT Gruppen (siehe design_images.gruppe und die
+// design_lizenzen-Tabelle) übernimmt stattdessen die dortige, feinere
+// Rechte-Erfassung pro Gruppe/Bestandteil diese Aufgabe.
+ensureColumn("designs", "maxVerkaeufe", "INTEGER");
 // Gestaffelte Preise statt eines einzigen Werts: "price" bleibt der
 // Design-Preis (jetzt Standard 10€ statt vorher optional), dazu die
 // PNG-Dateien (alle Motive einzeln, Standard 6€) und der Hintergrund separat
@@ -309,6 +333,12 @@ if (ensureColumn("design_images", "pairId", "TEXT")) {
     for (let i = n; i < withoutWm.length; i++) setPairId.run(crypto.randomUUID(), withoutWm[i].id);
   }
 }
+// Upload-Plan Schritt 10 (Grundlage, Oberfläche folgt später): Farbvarianten
+// wie "Blau"/"Rot" - freier Text statt fester Liste, damit keine
+// Obergrenze entsteht. NULL = kein Teil einer Varianten-Gruppe. Gilt pro
+// Bild, nicht pro Design - eine Gruppe kann Design, Motive und Hintergrund
+// gleichzeitig enthalten.
+ensureColumn("design_images", "gruppe", "TEXT");
 ensureColumn("orders", "kunde_instagram", "TEXT");
 ensureColumn("orders", "kunde_whatsapp", "TEXT");
 ensureColumn("orders", "kontakt_praeferenz", "TEXT NOT NULL DEFAULT 'E-Mail'");
