@@ -18,6 +18,18 @@ function formatDate(iso) {
 const BESTANDTEIL_LABEL = { design: "Design", png: "PNG-Dateien", hintergrund: "Hintergrund" };
 
 function renderRow(r) {
+  const revokeBtn = el("button", { type: "button", className: "delete-btn", textContent: "Aufheben" });
+  revokeBtn.addEventListener("click", async () => {
+    if (!confirm(`Exklusivität für ${r.design_id} · ${r.designName}${r.gruppe ? ` (${r.gruppe})` : ""} wirklich aufheben? Die Bestellung selbst bleibt erhalten, nur die Rechte-Vergabe wird gelöscht.`)) return;
+    const res = await fetch(`/api/admin/design-lizenzen/${r.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      alert("Fehler beim Aufheben.");
+      return;
+    }
+    allRechte = await res.json();
+    render();
+  });
+
   return el("tr", {}, [
     el("td", {}, [
       el("span", { textContent: `${r.design_id} · ${r.designName}` }),
@@ -26,7 +38,10 @@ function renderRow(r) {
     el("td", { textContent: BESTANDTEIL_LABEL[r.bestandteil] || r.bestandteil }),
     el("td", { textContent: `${r.kunde_name} (${r.kunde_email})` }),
     el("td", { textContent: formatDate(r.createdAt) }),
-    el("td", {}, [el("a", { className: "admin-nav-link", textContent: "Bestellung ansehen", href: `/mitarbeiter/bestellungen/bearbeiten?id=${r.order_id}` })]),
+    el("td", { className: "order-table-actions" }, [
+      el("a", { className: "admin-nav-link", textContent: "Bestellung ansehen", href: `/mitarbeiter/bestellungen/bearbeiten?id=${r.order_id}` }),
+      revokeBtn,
+    ]),
   ]);
 }
 

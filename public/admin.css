@@ -545,6 +545,7 @@
   -webkit-overflow-scrolling: touch;
 }
 .order-table { width: 100%; min-width: 640px; border-collapse: collapse; }
+.order-table-actions { display: flex; align-items: center; gap: 0.6rem; white-space: nowrap; }
 .order-table th, .order-table td {
   text-align: left;
   padding: 0.8rem 1rem;

@@ -87,8 +87,11 @@ function encryptField(value) {
 
 // Erkennt am Format (zwei Doppelpunkte, drei base64-Teile), ob ein Feld schon
 // verschlüsselt ist - für die einmalige Migration bestehender Klartext-Zeilen.
+// Der dritte Teil (Ciphertext) darf leer sein - AES-GCM eines leeren Strings
+// (z.B. kunde_email bei manuell erfassten Rechten ohne E-Mail) erzeugt einen
+// 0-Byte-Ciphertext, nur iv und authTag haben immer feste Länge > 0.
 function looksEncrypted(value) {
-  return typeof value === "string" && /^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/.test(value);
+  return typeof value === "string" && /^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]*$/.test(value);
 }
 
 function decryptField(value) {
@@ -1368,6 +1371,14 @@ function getDesignLizenzenUebersicht() {
   }));
 }
 
+// Nimmt eine vergebene Exklusivität zurück (z.B. Testdaten aufräumen oder
+// eine irrtümliche Vergabe korrigieren) - löscht nur den Lizenz-Eintrag,
+// die zugehörige Bestellung bleibt unangetastet als Beleg erhalten.
+function revokeLizenz(id) {
+  const info = db.prepare("DELETE FROM design_lizenzen WHERE id = ?").run(id);
+  return info.changes > 0;
+}
+
 // Rechte-Vergabe außerhalb des Bestellassistenten - z.B. wenn ein Verkauf
 // persönlich/außerhalb des Systems vereinbart wurde und nachträglich als
 // exklusiv erfasst werden muss. Legt dafür eine minimale, bereits
@@ -1436,6 +1447,7 @@ module.exports = {
   setOrderDesignExklusivitaet,
   getDesignLizenzenUebersicht,
   addManualLizenz,
+  revokeLizenz,
   getOrder,
   getOrderByToken,
   confirmOrderTerms,

@@ -1404,6 +1404,14 @@ app.post("/api/admin/design-lizenzen/manuell", requireAuth, (req, res) => {
   }
 });
 
+// Exklusivität zurücknehmen (z.B. Testdaten aufräumen oder eine irrtümliche
+// Vergabe korrigieren) - löscht nur den Lizenz-Eintrag, die Bestellung bleibt.
+app.delete("/api/admin/design-lizenzen/:id", requireAuth, (req, res) => {
+  const ok = db.revokeLizenz(Number(req.params.id));
+  if (!ok) return res.status(404).json({ error: "Eintrag nicht gefunden" });
+  res.json(db.getDesignLizenzenUebersicht());
+});
+
 // Schritte 3-7: einzelnen Wizard-Schritt abhaken (Reihenfolge wird serverseitig erzwungen)
 app.patch("/api/admin/orders/:id/step/:stepName", requireAuth, (req, res) => {
   try {
