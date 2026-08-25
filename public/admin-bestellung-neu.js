@@ -752,7 +752,9 @@ function renderAbschlussUebersicht(order) {
         el("span", {
           textContent: `${d.id} · ${d.name} — ${bausteineText} (${formatPrice(d.berechneterPreis)})${exklusiv ? " · 🔒 exklusiv" : ""}`,
         }),
-        varianten ? el("p", { className: "wizard-hint", textContent: `Variante(n): ${varianten.join(", ")}` }) : null,
+        varianten
+          ? el("ul", { className: "abschluss-variant-list" }, varianten.map((v) => el("li", { textContent: v })))
+          : null,
       ].filter(Boolean));
     })
   );
