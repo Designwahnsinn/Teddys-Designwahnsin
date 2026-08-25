@@ -739,6 +739,7 @@
   font-size: 0.85rem;
   font-family: inherit;
 }
+.exklusiv-gruppe-info { margin: 0.4rem 0.7rem 0 3.4rem; color: var(--accent); font-weight: 600; padding: 0; }
 .exklusiv-error { color: #c0392b; padding: 0 0.7rem; margin: 0.2rem 0 0 3.4rem; font-size: 0.8rem; }
 
 .file-preview { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }

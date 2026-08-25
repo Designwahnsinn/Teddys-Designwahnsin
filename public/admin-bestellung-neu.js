@@ -397,10 +397,13 @@ function renderPreisoptionenBlock(order, totalEl) {
     const initialGruppe = (d.exklusiveGruppen && d.exklusiveGruppen[0] && d.exklusiveGruppen[0].gruppe) || "";
     const exklusivBestandteile = new Set((d.exklusiveGruppen || []).map((e) => e.bestandteil));
 
-    // Freier Text statt Dropdown, das nur erscheint, wenn die Bilder schon
-    // vorher in der Bilder-Verwaltung mit einer Gruppe versehen wurden - die
-    // Auswahl muss auch dann funktionieren, wenn das noch niemand nachgetragen
-    // hat. Mit Vorschlagsliste, falls es doch schon Gruppen gibt (Tippfehler vermeiden).
+    // Welche Variante gemeint ist, wurde in Schritt 2 (Designs zuordnen)
+    // bereits über die Varianten-Auswahl festgelegt - hier nicht nochmal
+    // fragen, sondern aus den dort gewählten Varianten ableiten (über deren
+    // gemeinsame Gruppe, sofern in der Bilder-Verwaltung gepflegt). Nur wenn
+    // sich daraus keine eindeutige Gruppe ergibt (keine Varianten gewählt,
+    // oder die Bilder haben noch keine Gruppe), bleibt ein Eingabefeld als Rückfalloption.
+    const gruppeInfo = el("p", { className: "wizard-hint exklusiv-gruppe-info", hidden: true });
     const gruppeListId = `wizard-gruppe-list-${d.id}`;
     const gruppeDatalist = el("datalist", { id: gruppeListId });
     const gruppeInput = el("input", {
@@ -408,8 +411,10 @@ function renderPreisoptionenBlock(order, totalEl) {
       className: "exklusiv-gruppe-input",
       placeholder: "Welche Variante/Farbe? (z. B. Blau, Nr. 2 - leer = ganzes Design ohne Varianten)",
       value: initialGruppe,
+      hidden: true,
     });
     gruppeInput.setAttribute("list", gruppeListId);
+    let abgeleiteteGruppe = null; // gesetzt, sobald sich aus Schritt 2 eindeutig eine Gruppe ergibt
     const exklusivError = el("p", { className: "wizard-hint exklusiv-error", hidden: true });
 
     const bausteine = PREISOPTIONEN.map((opt) => ({
@@ -419,9 +424,10 @@ function renderPreisoptionenBlock(order, totalEl) {
     }));
 
     async function saveExklusivitaet() {
+      const gruppe = abgeleiteteGruppe !== null ? abgeleiteteGruppe : gruppeInput.value.trim() || null;
       const entries = bausteine
         .filter((b) => b.checkbox.checked && b.exklusivCheckbox.checked)
-        .map((b) => ({ gruppe: gruppeInput.value.trim() || null, bestandteil: b.opt.key }));
+        .map((b) => ({ gruppe, bestandteil: b.opt.key }));
       const res = await fetch(`/api/admin/orders/${order.id}/designs/${d.id}/exklusivitaet`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -475,22 +481,48 @@ function renderPreisoptionenBlock(order, totalEl) {
       el("div", { className: "wizard-design-item" }, [
         el("span", { textContent: `${d.id} · ${d.name}` }),
         el("div", { className: "wizard-design-variant-row" }, optionLabels),
+        gruppeInfo,
         gruppeInput,
         gruppeDatalist,
         exklusivError,
       ])
     );
 
-    // Vorschlagsliste aus den in der Bilder-Verwaltung bereits vergebenen
-    // Gruppen dieses Designs - rein optional, das Feld funktioniert auch ohne
-    // (z.B. wenn dort noch niemand eine Gruppe eingetragen hat).
+    // Gruppe aus der in Schritt 2 getroffenen Varianten-Auswahl ableiten
+    // (dieselbe variantLabel()-Logik wie beim Varianten-Picker dort), statt
+    // hier nochmal separat zu fragen. Vorschlagsliste im Fallback-Feld kommt
+    // aus denselben Bildern.
     fetch(`/api/admin/designs/${d.id}/images`)
       .then((r) => r.json())
       .then((images) => {
-        const gruppen = [...new Set(images.map((i) => i.gruppe).filter(Boolean))];
-        gruppen.forEach((g) => gruppeDatalist.appendChild(el("option", { value: g })));
+        const watermarked = images.filter((img) => img.wasserzeichen);
+        const gruppenAllerVarianten = [...new Set(watermarked.map((i) => i.gruppe).filter(Boolean))];
+        gruppenAllerVarianten.forEach((g) => gruppeDatalist.appendChild(el("option", { value: g })));
+
+        const gewaehlteVarianten = d.varianten || [];
+        const gruppenAusAuswahl = [
+          ...new Set(
+            watermarked
+              .map((img, i) => ({ label: variantLabel(img, i + 1), gruppe: img.gruppe }))
+              .filter((v) => gewaehlteVarianten.includes(v.label) && v.gruppe)
+              .map((v) => v.gruppe)
+          ),
+        ];
+
+        if (gewaehlteVarianten.length > 0 && gruppenAusAuswahl.length === 1) {
+          abgeleiteteGruppe = gruppenAusAuswahl[0];
+          gruppeInfo.textContent = `Variante: ${abgeleiteteGruppe} (aus der Design-Auswahl in Schritt 2 übernommen)`;
+          gruppeInfo.hidden = false;
+        } else {
+          // Keine eindeutige Ableitung möglich (keine Varianten gewählt, die
+          // gewählten Bilder haben noch keine Gruppe, oder sie gehören zu
+          // unterschiedlichen Gruppen) - Eingabefeld als Rückfalloption zeigen.
+          gruppeInput.hidden = false;
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        gruppeInput.hidden = false;
+      });
   });
 
   return listEl;
