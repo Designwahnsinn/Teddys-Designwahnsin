@@ -98,24 +98,31 @@ function formatPrice(price) {
 // Design-Preis gibt (ältere/einfache Designs ohne PNG-/Hintergrund-Preis
 // zeigen sonst unnötig eine Ein-Zeilen-"Tabelle"). Bausteine sind addierbar
 // wählbar - die genaue Auswahl bespricht die Kundin dann in der Anfrage.
+// "Exklusiv" bezieht sich nur auf das Design selbst (die einzelne Design-Art/
+// Farbvariante) - PNG-Dateien und Hintergrund sind laut Geschäftsmodell nie
+// exklusiv und bleiben immer separat kaufbar, auch wenn das Design vergeben ist.
 function renderLightboxPriceTable(design) {
   lightboxPriceTable.innerHTML = "";
+  const designVergeben = design.status === "exklusiv";
   const rows = [
-    ["Design", design.price],
-    ["PNG-Dateien (alle Motive)", design.pricePng],
-    ["Hintergrund", design.priceHintergrund],
+    ["Design", design.price, designVergeben],
+    ["PNG-Dateien (alle Motive)", design.pricePng, false],
+    ["Hintergrund", design.priceHintergrund, false],
   ].filter(([, p]) => p != null);
-  if (rows.length <= 1) return;
+  if (rows.length <= 1 && !designVergeben) return;
 
   lightboxPriceTable.appendChild(
     el("div", { className: "price-table" }, [
       el("p", { className: "price-table-hint", textContent: "Einzeln oder kombinierbar (addiert sich):" }),
-      ...rows.map(([label, p]) =>
-        el("div", { className: "price-table-row" }, [
+      ...rows.map(([label, p, vergeben]) =>
+        el("div", { className: `price-table-row${vergeben ? " price-table-row-vergeben" : ""}` }, [
           el("span", { textContent: label }),
-          el("span", { textContent: formatPrice(p) }),
+          el("span", { textContent: vergeben ? "vergeben" : formatPrice(p) }),
         ])
       ),
+      ...(designVergeben
+        ? [el("p", { className: "price-table-hint", textContent: "Design bereits exklusiv vergeben – PNG-Dateien und Hintergrund weiterhin erhältlich." })]
+        : []),
     ])
   );
 }
@@ -196,7 +203,7 @@ function renderCards(designs) {
       selectBtn,
     ]);
     if (d.status === "exklusiv") {
-      overlay.prepend(el("span", { className: "badge-exklusiv", textContent: "Exklusiv" }));
+      overlay.prepend(el("span", { className: "badge-exklusiv", textContent: "Design exklusiv", title: "Nur das Design ist exklusiv vergeben – PNG-Dateien und Hintergrund bleiben erhältlich." }));
     }
     card.appendChild(overlay);
 
@@ -335,7 +342,7 @@ function openLightbox(design) {
   renderLightboxPriceTable(design);
 
   lightboxBadge.hidden = design.status !== "exklusiv";
-  lightboxBadge.textContent = "Exklusiv – nur einmal erhältlich";
+  lightboxBadge.textContent = "Design exklusiv vergeben";
 
   updateLightboxInquiryToggle();
 

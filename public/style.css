@@ -499,6 +499,9 @@ h2 {
 .price-table-hint { color: var(--muted); font-size: 0.78rem; margin-bottom: 0.3rem; }
 .price-table-row { display: flex; justify-content: space-between; padding: 0.15rem 0; }
 .price-table-row span:last-child { font-weight: 600; }
+.price-table-row-vergeben { opacity: 0.6; }
+.price-table-row-vergeben span:first-child { text-decoration: line-through; }
+.price-table-row-vergeben span:last-child { color: var(--muted); font-style: italic; }
 
 .lightbox-actions {
   display: flex;
