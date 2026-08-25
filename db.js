@@ -1413,10 +1413,19 @@ const completeOrder = db.transaction((orderId) => {
   }
 
   db.prepare("UPDATE orders SET status = 'Erledigt' WHERE id = ?").run(orderId);
+  // Zählt verkaufte Varianten, nicht nur "wurde dieses Design in irgendeiner
+  // Bestellung verkauft" - 2 gekaufte Design-Varianten (siehe
+  // designVariantenAnzahl/countDesignTypVarianten) erhöhen den Zähler um 2,
+  // nicht nur um 1. Wurde nur PNG oder Hintergrund gekauft (kein
+  // Design-Baustein), zählt das wie bisher als 1 Verkauf.
   const incrementCounter = db.prepare(
-    "UPDATE designs SET verkaufszaehler = verkaufszaehler + 1 WHERE id = ?"
+    "UPDATE designs SET verkaufszaehler = verkaufszaehler + ? WHERE id = ?"
   );
-  for (const design of order.designs) incrementCounter.run(design.id);
+  for (const design of order.designs) {
+    const preisoptionen = design.preisoptionen && design.preisoptionen.length > 0 ? design.preisoptionen : ["design"];
+    const anzahl = preisoptionen.includes("design") ? Math.max(design.designVariantenAnzahl || 1, 1) : 1;
+    incrementCounter.run(anzahl, design.id);
+  }
 
   // Exklusive Rechte werden erst jetzt, beim tatsächlichen Abschluss, fest
   // vergeben (siehe Kommentar an order_designs.exklusiveGruppen) - vorher war
