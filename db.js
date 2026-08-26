@@ -279,6 +279,10 @@ ensureColumn("designs", "serverProcessingMs", "INTEGER NOT NULL DEFAULT 0");
 // uploadDurationMs (das misst nur Datei-auswählen bis Absenden, also das
 // Ausfüllen des Formulars, nicht die eigentliche Design-Erstellung).
 ensureColumn("designs", "canvaDurationMs", "INTEGER NOT NULL DEFAULT 0");
+// Rein für die manuelle CSV-Auswertung der Zeitmessung (z.B. "hat länger
+// gedauert, weil ..."), keine operative Bedeutung, taucht nirgends beim
+// Kunden oder in der normalen Design-Verwaltung auf.
+ensureColumn("designs", "auswertungsNotiz", "TEXT");
 // Upload-Plan Schritt 9 (Grundlage, Oberfläche folgt später): wie oft ein
 // Design ohne eigene Varianten-Gruppen verkauft werden darf. NULL =
 // unbegrenzt. Für Designs MIT Gruppen (siehe design_images.gruppe und die
@@ -668,8 +672,8 @@ function nextId() {
 function addDesign(design) {
   const onlineFlag = design.online === undefined ? 1 : (design.online ? 1 : 0);
   db.prepare(`
-    INSERT INTO designs (id, name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, image, online, onlineSetAt, uploadDurationMs, serverProcessingMs, groesseCm, verkaufszaehler, createdAt)
-    VALUES (@id, @name, @description, @category, @price, @pricePng, @priceHintergrund, @status, @kaufLink, @driveLink, @instagramLink, @image, @online, @onlineSetAt, @uploadDurationMs, @serverProcessingMs, @groesseCm, 0, @createdAt)
+    INSERT INTO designs (id, name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, image, online, onlineSetAt, uploadDurationMs, serverProcessingMs, groesseCm, verkaufszaehler, auswertungsNotiz, createdAt)
+    VALUES (@id, @name, @description, @category, @price, @pricePng, @priceHintergrund, @status, @kaufLink, @driveLink, @instagramLink, @image, @online, @onlineSetAt, @uploadDurationMs, @serverProcessingMs, @groesseCm, 0, @auswertungsNotiz, @createdAt)
   `).run({
     id: design.id,
     name: design.name,
@@ -689,6 +693,7 @@ function addDesign(design) {
     uploadDurationMs: design.uploadDurationMs || 0,
     serverProcessingMs: design.serverProcessingMs || 0,
     groesseCm: design.groesseCm || 20,
+    auswertungsNotiz: design.auswertungsNotiz || "",
     createdAt: design.createdAt,
   });
   db.prepare(`
@@ -710,7 +715,7 @@ function addUploadTiming(id, { uploadDurationMs, serverProcessingMs, canvaDurati
   `).run(uploadDurationMs || 0, serverProcessingMs || 0, canvaDurationMs || 0, id);
 }
 
-const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "pricePng", "priceHintergrund", "status", "kaufLink", "driveLink", "instagramLink", "online", "groesseCm"];
+const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "pricePng", "priceHintergrund", "status", "kaufLink", "driveLink", "instagramLink", "online", "groesseCm", "auswertungsNotiz"];
 
 function updateDesign(id, changes) {
   const existing = db.prepare("SELECT * FROM designs WHERE id = ?").get(id);

@@ -179,6 +179,7 @@ function renderCardEdit(d, body) {
   const linkInput = el("input", { type: "url", value: d.kaufLink || "", placeholder: "https://…" });
   const instagramInput = el("input", { type: "url", value: d.instagramLink || "", placeholder: "https://instagram.com/p/…" });
   const driveInput = el("input", { type: "url", value: d.driveLink || "", placeholder: "https://drive.google.com/…" });
+  const auswertungsNotizInput = el("textarea", { rows: 2, value: d.auswertungsNotiz || "", placeholder: "Nur für dich, erscheint nur in der CSV-Auswertung." });
   const tagInput = buildTagInput(d.tags || [], allTags);
 
   const errorMsg = el("p", { className: "edit-error" });
@@ -199,6 +200,7 @@ function renderCardEdit(d, body) {
         kaufLink: linkInput.value.trim(),
         instagramLink: instagramInput.value.trim(),
         driveLink: driveInput.value.trim(),
+        auswertungsNotiz: auswertungsNotizInput.value.trim(),
         tags: tagInput.getTags(),
       }),
     });
@@ -251,6 +253,7 @@ function renderCardEdit(d, body) {
     el("label", { textContent: "Kauf-Link" }), linkInput,
     el("label", { textContent: "Instagram-Link" }), instagramInput,
     el("label", { textContent: "Google-Drive-Link (intern)" }), driveInput,
+    el("label", { textContent: "Notiz zur Auswertung (optional, nur CSV)" }), auswertungsNotizInput,
     el("label", { textContent: "Tags" }), tagInput,
     errorMsg,
     el("div", { className: "card-actions" }, [saveBtn, cancelBtn]),

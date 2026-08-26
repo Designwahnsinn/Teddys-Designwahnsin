@@ -572,7 +572,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
   // uploadDurationMs, damit ein vergessener/liegen gelassener Timer die
   // Auswertung nicht verzerrt.
   const canvaDurationMs = clampUploadDurationMs(req.body.canvaDurationMs);
-  const { name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink } = req.body;
+  const { name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, auswertungsNotiz } = req.body;
   const files = req.files || [];
   if (!name || !category || files.length === 0) {
     return res.status(400).json({ error: "Name, Kategorie und mindestens ein Bild sind Pflichtfelder" });
@@ -625,6 +625,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
       kaufLink: kaufLink || "",
       driveLink: driveLink || "",
       instagramLink: instagramLink || "",
+      auswertungsNotiz: auswertungsNotiz || "",
       image: storedPath(mainPair.watermarked.dir, mainPair.watermarked.filename),
       previewImage: mainPair.watermarked.previewFilename ? storedPath(mainPair.watermarked.previewDir, mainPair.watermarked.previewFilename) : null,
       online: req.body.online !== undefined,
@@ -731,7 +732,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
 });
 
 app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
-  const { name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, online, tags, groesseCm } = req.body;
+  const { name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink, online, tags, groesseCm, auswertungsNotiz } = req.body;
 
   const changes = {};
   if (name !== undefined) {
@@ -757,6 +758,7 @@ app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
   if (kaufLink !== undefined) changes.kaufLink = kaufLink;
   if (driveLink !== undefined) changes.driveLink = driveLink;
   if (instagramLink !== undefined) changes.instagramLink = instagramLink;
+  if (auswertungsNotiz !== undefined) changes.auswertungsNotiz = auswertungsNotiz;
   if (online !== undefined) changes.online = Boolean(online) ? 1 : 0;
   if (groesseCm !== undefined) {
     const cm = Number(groesseCm);
@@ -1949,6 +1951,7 @@ app.get("/api/admin/export/designs.csv", requireAuth, (req, res) => {
     "uploadDauerMinuten",
     "serverVerarbeitungSekunden",
     "bearbeitungsdauerMinuten",
+    "auswertungsNotiz",
   ];
   const rows = db.getDesigns().map((d) => {
     // Nur die "Ohne Wasserzeichen"-Zeilen zählen, damit jede hochgeladene
@@ -1981,6 +1984,7 @@ app.get("/api/admin/export/designs.csv", requireAuth, (req, res) => {
       uploadDauerMinuten,
       Math.round((d.serverProcessingMs / 1000) * 10) / 10,
       bearbeitungsdauerMinuten,
+      d.auswertungsNotiz || "",
     ];
   });
   sendCsv(res, "designs.csv", toCsv(headers, rows));
