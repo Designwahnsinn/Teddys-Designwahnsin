@@ -1543,9 +1543,12 @@ const addManualLizenz = db.transaction(({ designId, gruppe, kundeName, notiz }) 
   const now = new Date().toISOString();
   const orderInfo = db.prepare(`
     INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status, notiz, access_token, token_created_at, manuell)
-    VALUES (?, '', '', '', 'E-Mail', ?, 'Erledigt', ?, ?, ?, 1)
+    VALUES (?, ?, ?, ?, 'E-Mail', ?, 'Erledigt', ?, ?, ?, 1)
   `).run(
     encryptField(kundeName),
+    encryptField(""),
+    encryptField(""),
+    encryptField(""),
     now,
     encryptField(notiz || "Manuell erfasste Rechte-Vergabe (außerhalb des Bestellassistenten)"),
     generateOrderToken(),
