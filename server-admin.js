@@ -567,6 +567,11 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
   // Datei-Auswählen bis zum Absenden, siehe admin-neu.js).
   const requestStart = Date.now();
   const uploadDurationMs = clampUploadDurationMs(req.body.uploadDurationMs);
+  // Reine Canva-Arbeitszeit (Start-Knopf bis erstes Datei-Auswählen), siehe
+  // Kommentar an canvaDurationMs in db.js - dieselbe Obergrenze wie
+  // uploadDurationMs, damit ein vergessener/liegen gelassener Timer die
+  // Auswertung nicht verzerrt.
+  const canvaDurationMs = clampUploadDurationMs(req.body.canvaDurationMs);
   const { name, description, category, price, pricePng, priceHintergrund, status, kaufLink, driveLink, instagramLink } = req.body;
   const files = req.files || [];
   if (!name || !category || files.length === 0) {
@@ -716,7 +721,7 @@ app.post("/api/admin/designs", requireAuth, upload.array("images", 30), async (r
       if (pair.qualityWarning) qualityWarnings.push(pair.qualityWarning);
     }
 
-    db.addUploadTiming(design.id, { uploadDurationMs, serverProcessingMs: Date.now() - requestStart });
+    db.addUploadTiming(design.id, { uploadDurationMs, serverProcessingMs: Date.now() - requestStart, canvaDurationMs });
     res.status(201).json({ ...design, qualityWarnings, fehlgeschlagen });
   } catch (err) {
     res.status(err.status || 400).json({ error: describeUploadError(err, "Hauptbild") });
@@ -1940,6 +1945,7 @@ app.get("/api/admin/export/designs.csv", requireAuth, (req, res) => {
     "preisPng",
     "preisHintergrund",
     "verkaufszaehler",
+    "canvaDauerMinuten",
     "uploadDauerMinuten",
     "serverVerarbeitungSekunden",
     "bearbeitungsdauerMinuten",
@@ -1971,6 +1977,7 @@ app.get("/api/admin/export/designs.csv", requireAuth, (req, res) => {
       d.pricePng,
       d.priceHintergrund,
       d.verkaufszaehler,
+      Math.round((d.canvaDurationMs / 60000) * 10) / 10,
       uploadDauerMinuten,
       Math.round((d.serverProcessingMs / 1000) * 10) / 10,
       bearbeitungsdauerMinuten,

@@ -252,6 +252,26 @@
 .quality-hint-box ul { margin: 0 0 0 1.1rem; padding: 0; }
 .quality-hint-box li { margin-bottom: 0.2rem; }
 
+.canva-timer-box {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  margin-bottom: 1.5rem;
+  max-width: 480px;
+}
+.canva-timer-box .field-hint { margin-top: 0; margin-bottom: 0.6rem; }
+.canva-timer-box #canva-timer-status { margin-bottom: 0; font-weight: 600; color: var(--accent); }
+#canva-timer-start {
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+
 .admin-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));

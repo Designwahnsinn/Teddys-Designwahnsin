@@ -273,6 +273,12 @@ ensureColumn("designs", "onlineSetAt", "TEXT");
 // (onlineSetAt - createdAt) minus uploadDurationMs, reine Rechnung bei der Auswertung.
 ensureColumn("designs", "uploadDurationMs", "INTEGER NOT NULL DEFAULT 0");
 ensureColumn("designs", "serverProcessingMs", "INTEGER NOT NULL DEFAULT 0");
+// Reine Canva-Arbeitszeit: Start-Knopf auf "Design hochladen" wird VOR dem
+// Wechsel zu Canva gedrückt, die Uhr stoppt automatisch beim ersten
+// Datei-Auswählen danach (siehe admin-neu.js) - eigenständige Phase VOR
+// uploadDurationMs (das misst nur Datei-auswählen bis Absenden, also das
+// Ausfüllen des Formulars, nicht die eigentliche Design-Erstellung).
+ensureColumn("designs", "canvaDurationMs", "INTEGER NOT NULL DEFAULT 0");
 // Upload-Plan Schritt 9 (Grundlage, Oberfläche folgt später): wie oft ein
 // Design ohne eigene Varianten-Gruppen verkauft werden darf. NULL =
 // unbegrenzt. Für Designs MIT Gruppen (siehe design_images.gruppe und die
@@ -697,9 +703,11 @@ function addDesign(design) {
 // nachträglich Bilder über die Bilder-Verwaltung ergänzt) - addiert statt zu
 // überschreiben, damit die Gesamt-Upload-Dauer über alle Vorgänge zu diesem
 // Design erhalten bleibt.
-function addUploadTiming(id, { uploadDurationMs, serverProcessingMs }) {
-  db.prepare("UPDATE designs SET uploadDurationMs = uploadDurationMs + ?, serverProcessingMs = serverProcessingMs + ? WHERE id = ?")
-    .run(uploadDurationMs || 0, serverProcessingMs || 0, id);
+function addUploadTiming(id, { uploadDurationMs, serverProcessingMs, canvaDurationMs }) {
+  db.prepare(`
+    UPDATE designs SET uploadDurationMs = uploadDurationMs + ?, serverProcessingMs = serverProcessingMs + ?, canvaDurationMs = canvaDurationMs + ?
+    WHERE id = ?
+  `).run(uploadDurationMs || 0, serverProcessingMs || 0, canvaDurationMs || 0, id);
 }
 
 const DESIGN_UPDATE_FIELDS = ["name", "description", "category", "price", "pricePng", "priceHintergrund", "status", "kaufLink", "driveLink", "instagramLink", "online", "groesseCm"];

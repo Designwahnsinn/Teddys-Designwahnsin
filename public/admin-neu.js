@@ -146,12 +146,85 @@ async function loadNextId() {
   nextIdHint.textContent = `Nächste ID: ${data.id}`;
 }
 
+// Reine Canva-Arbeitszeit (optional): Start-Knopf wird VOR dem Wechsel zu
+// Canva gedrückt, die Uhr stoppt automatisch beim ersten Datei-Auswählen
+// danach - eigene Phase VOR uploadStartedAt (das misst nur Datei-auswählen
+// bis Absenden, also das Ausfüllen des Formulars). localStorage statt einer
+// reinen JS-Variable, weil der Wechsel zu Canva den Tab/die Seite u.U.
+// verlässt oder neu lädt, während die Uhr weiterlaufen soll.
+const CANVA_TIMER_KEY = "canvaTimerStartedAt";
+const CANVA_TIMER_MAX_AGE_MS = 2 * 60 * 60 * 1000; // wie serverseitiges Limit - ein vergessener Timer verzerrt sonst die Auswertung
+const canvaTimerBtn = document.getElementById("canva-timer-start");
+const canvaTimerStatus = document.getElementById("canva-timer-status");
+let canvaDurationMs = null;
+let canvaTimerTickHandle = null;
+
+function formatDauer(ms) {
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")} Min.`;
+}
+
+function stopCanvaTimerTick() {
+  if (canvaTimerTickHandle !== null) {
+    clearInterval(canvaTimerTickHandle);
+    canvaTimerTickHandle = null;
+  }
+}
+
+function showCanvaTimerRunning(startedAt) {
+  canvaTimerBtn.hidden = true;
+  canvaTimerStatus.hidden = false;
+  stopCanvaTimerTick();
+  const tick = () => {
+    canvaTimerStatus.textContent = `⏱️ Zeitmessung läuft seit ${formatDauer(Date.now() - startedAt)} - ab jetzt zu Canva wechseln, die Uhr stoppt beim Datei-Auswählen unten.`;
+  };
+  tick();
+  canvaTimerTickHandle = setInterval(tick, 1000);
+}
+
+// Ein vergessener/liegen gelassener Timer (z.B. Tab seit Tagen offen) soll
+// nicht stillschweigend als aktiv gelten und dann eine absurde Dauer liefern.
+const storedStart = Number(localStorage.getItem(CANVA_TIMER_KEY));
+if (storedStart && Date.now() - storedStart < CANVA_TIMER_MAX_AGE_MS) {
+  showCanvaTimerRunning(storedStart);
+} else if (storedStart) {
+  localStorage.removeItem(CANVA_TIMER_KEY);
+}
+
+canvaTimerBtn.addEventListener("click", () => {
+  const startedAt = Date.now();
+  localStorage.setItem(CANVA_TIMER_KEY, String(startedAt));
+  showCanvaTimerRunning(startedAt);
+});
+
+function stopCanvaTimerOnFileSelect() {
+  const stored = Number(localStorage.getItem(CANVA_TIMER_KEY));
+  if (!stored) return;
+  localStorage.removeItem(CANVA_TIMER_KEY);
+  stopCanvaTimerTick();
+  if (Date.now() - stored >= CANVA_TIMER_MAX_AGE_MS) {
+    // Zu alt/unplausibel (siehe storedStart-Check oben) - nicht mitsenden,
+    // aber Hinweis zurücksetzen, damit kein falscher Eindruck bleibt.
+    canvaTimerStatus.hidden = true;
+    canvaTimerBtn.hidden = false;
+    return;
+  }
+  canvaDurationMs = Date.now() - stored;
+  canvaTimerStatus.hidden = false;
+  canvaTimerStatus.textContent = `✅ Canva-Zeit gestoppt: ${formatDauer(canvaDurationMs)}`;
+}
+
 // Testkonzept-Auswertung: Startzeitpunkt der Aufgabe "Design hochladen" - das
 // erste Datei-Auswählen ist der konkreteste, unzweideutige Startpunkt.
 let uploadStartedAt = null;
 
 imageInput.addEventListener("change", () => {
-  if (uploadStartedAt === null) uploadStartedAt = Date.now();
+  if (uploadStartedAt === null) {
+    uploadStartedAt = Date.now();
+    stopCanvaTimerOnFileSelect();
+  }
   filePreview.innerHTML = "";
   [...imageInput.files].forEach((file) => {
     filePreview.appendChild(el("img", { src: URL.createObjectURL(file), alt: "Vorschau" }));
@@ -192,6 +265,7 @@ form.addEventListener("submit", async (e) => {
   try {
     const formData = new FormData(form);
     if (uploadStartedAt !== null) formData.append("uploadDurationMs", String(Date.now() - uploadStartedAt));
+    if (canvaDurationMs !== null) formData.append("canvaDurationMs", String(canvaDurationMs));
     const res = await fetch("/api/admin/designs", { method: "POST", body: formData });
 
     if (res.ok) {
