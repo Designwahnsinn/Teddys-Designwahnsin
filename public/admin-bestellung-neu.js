@@ -470,6 +470,34 @@ function renderRabattBlock(order, totalEl) {
   ]);
 }
 
+// Referenz auf die Kundennummer in sevDesk (manuell, keine API-Anbindung) -
+// macht sichtbar, wenn dieselbe Kundin mehrere Bestellungen hat, auch wenn
+// der Name mal anders geschrieben wurde, ohne eine eigene Kunden-Verwaltung.
+// Wird direkt beim Verlassen des Felds gespeichert, kein Speichern-Button.
+function renderSevdeskField(order) {
+  const input = el("input", { type: "text", value: order.sevdesk_kundennummer || "", placeholder: "z. B. K-1024" });
+  const errorMsg = el("p", { className: "wizard-error" });
+  input.addEventListener("change", async () => {
+    const res = await fetch(`/api/admin/orders/${order.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sevdesk_kundennummer: input.value.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      errorMsg.textContent = data.error || "Fehler beim Speichern der Kundennummer.";
+      return;
+    }
+    errorMsg.textContent = "";
+    Object.assign(order, data);
+  });
+  return el("div", { className: "rabatt-row" }, [
+    el("label", { textContent: "sevDesk-Kundennummer (optional):" }),
+    input,
+    errorMsg,
+  ]);
+}
+
 const PREISOPTIONEN = [
   {
     key: "design",
@@ -753,6 +781,7 @@ function renderStepAction(order, stepKey) {
       renderRabattBlock(order, totalEl),
       totalEl,
       el("p", { className: "wizard-hint", textContent: "Rechnung mit diesen Eckdaten manuell in sevdesk anlegen." }),
+      renderSevdeskField(order),
       renderFileUploadBlock(order, { field: "angebot_datei", label: "Angebot (optional)", route: "angebot" }),
       renderFileUploadBlock(order, { field: "rechnung_datei", label: "Rechnung", route: "rechnung" }),
       errorMsg,

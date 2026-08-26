@@ -1445,7 +1445,7 @@ app.post("/api/admin/orders/:id/complete", requireAuth, (req, res) => {
 // Freie Bearbeitung einer bestehenden Bestellung: Kunde, Status und Schritte
 // unabhängig von der Wizard-Reihenfolge änderbar, auch bei "Erledigt".
 app.patch("/api/admin/orders/:id", requireAuth, (req, res) => {
-  const { kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, status, notiz, rabatt_typ, rabatt_wert } = req.body;
+  const { kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, status, notiz, rabatt_typ, rabatt_wert, sevdesk_kundennummer } = req.body;
   const changes = {};
 
   if (kunde_name !== undefined) {
@@ -1471,6 +1471,7 @@ app.patch("/api/admin/orders/:id", requireAuth, (req, res) => {
     changes.status = status;
   }
   if (notiz !== undefined) changes.notiz = notiz;
+  if (sevdesk_kundennummer !== undefined) changes.sevdesk_kundennummer = sevdesk_kundennummer.trim();
   // Rabatt gilt für die gesamte Bestellung - rabatt_typ null räumt ihn wieder
   // ab (kommt vom Client z.B. bei "Kein Rabatt" ausgewählt).
   if (rabatt_typ !== undefined) {

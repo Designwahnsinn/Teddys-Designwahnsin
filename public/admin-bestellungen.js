@@ -1,3 +1,4 @@
+const searchInput = document.getElementById("order-search");
 const filtersEl = document.getElementById("order-filters");
 const testFiltersEl = document.getElementById("test-filters");
 const rowsEl = document.getElementById("order-rows");
@@ -88,6 +89,15 @@ async function loadOrders() {
   if (testFilter === "Ohne Tests") orders = orders.filter((o) => !o.ist_test);
   else if (testFilter === "Nur Tests") orders = orders.filter((o) => o.ist_test);
 
+  const searchQuery = searchInput.value.trim().toLowerCase();
+  if (searchQuery) {
+    orders = orders.filter((o) =>
+      o.kunde_name.toLowerCase().includes(searchQuery) ||
+      o.kunde_email.toLowerCase().includes(searchQuery) ||
+      (o.sevdesk_kundennummer || "").toLowerCase().includes(searchQuery)
+    );
+  }
+
   rowsEl.innerHTML = "";
   emptyEl.hidden = orders.length > 0;
 
@@ -143,6 +153,7 @@ async function loadOrders() {
   });
 }
 
+searchInput.addEventListener("input", loadOrders);
 renderFilters();
 renderTestFilters();
 loadOrders();

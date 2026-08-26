@@ -108,7 +108,9 @@ function decryptField(value) {
 }
 
 // Kundendaten-Felder der orders-Tabelle, die verschlüsselt abgelegt werden.
-const ORDER_PII_FIELDS = ["kunde_name", "kunde_email", "kunde_instagram", "kunde_whatsapp", "notiz", "terms_confirmed_ip"];
+// sevdesk_kundennummer zählt dazu, weil sie zusammen mit dem Zugriff auf
+// sevDesk auf eine konkrete Kundin zurückführt.
+const ORDER_PII_FIELDS = ["kunde_name", "kunde_email", "kunde_instagram", "kunde_whatsapp", "notiz", "terms_confirmed_ip", "sevdesk_kundennummer"];
 
 function encryptOrderFields(obj) {
   const result = { ...obj };
@@ -411,6 +413,11 @@ ensureColumn("orders", "design_ausstehend", "INTEGER NOT NULL DEFAULT 0");
 // Exklusivrechte (siehe completeOrder), damit Testläufe keine echten Zahlen
 // verfälschen oder eine Farbvariante fälschlich blockieren.
 ensureColumn("orders", "ist_test", "INTEGER NOT NULL DEFAULT 0");
+// Referenz auf die Kundennummer in sevDesk (manuell eingetragen, keine
+// API-Anbindung) - macht sichtbar, wenn dieselbe Kundin mehrere Bestellungen
+// hat, auch wenn der Name mal anders geschrieben wurde, ohne eine eigene
+// Kunden-Verwaltung aufzubauen.
+ensureColumn("orders", "sevdesk_kundennummer", "TEXT");
 
 // Wasserzeichen und Hintergrund-Variante waren früher eine einzige flache
 // Kategorie ("Mit Wasserzeichen" / "Ohne Wasserzeichen" / "Hintergrund-Variante"),
@@ -464,12 +471,22 @@ for (const row of db.prepare("SELECT id FROM orders WHERE access_token IS NULL")
 // pauschal mit, was bei Zeilen mit uneinheitlichem Stand (z.B. kunde_name
 // noch Klartext, kunde_instagram aber schon verschlüsselt) zur versehentlichen
 // Doppel-Verschlüsselung einzelner Felder führte (siehe repairDoubleEncryptedOrderFields()).
+// Absichtlich eine eigene, feste Liste statt ORDER_PII_FIELDS zu verwenden -
+// diese Migration ist nur für das historische Klartext-Aufräumen der
+// UNTEN fest verdrahteten SELECT/UPDATE-Spalten gedacht. Ein später neu
+// hinzugefügtes PII-Feld wie sevdesk_kundennummer hat keine solche
+// Klartext-Altlast (verschlüsselt schon von Anfang an über updateOrder) und
+// würde hier nur, weil es nicht selektiert wird, als "undefined" und damit
+// fälschlich immer als "noch zu migrieren" durchgehen - bei jedem
+// Serverstart ein sinnloses Re-Update aller Bestellungen.
+const LEGACY_ORDER_PII_MIGRATION_FIELDS = ["kunde_name", "kunde_email", "kunde_instagram", "kunde_whatsapp", "notiz", "terms_confirmed_ip"];
+
 function migrateEncryptOrderFields() {
   const rows = db.prepare(`
     SELECT id, kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, notiz, terms_confirmed_ip
     FROM orders
   `).all();
-  const toMigrate = rows.filter((row) => ORDER_PII_FIELDS.some((field) => !looksEncrypted(row[field])));
+  const toMigrate = rows.filter((row) => LEGACY_ORDER_PII_MIGRATION_FIELDS.some((field) => !looksEncrypted(row[field])));
   if (toMigrate.length === 0) return;
   const update = db.prepare(`
     UPDATE orders SET kunde_name = ?, kunde_email = ?, kunde_instagram = ?, kunde_whatsapp = ?, notiz = ?, terms_confirmed_ip = ?
@@ -511,7 +528,7 @@ function repairDoubleEncryptedOrderFields() {
     for (const row of rows) {
       let changed = false;
       const fixed = {};
-      for (const field of ORDER_PII_FIELDS) {
+      for (const field of LEGACY_ORDER_PII_MIGRATION_FIELDS) {
         let value = row[field];
         // Mehrschichtig doppelt-verschlüsselte Werte (sollte es eigentlich
         // nicht geben, aber sicherheitshalber mit Obergrenze statt Endlosschleife).
@@ -1323,6 +1340,7 @@ const ORDER_UPDATE_FIELDS = [
   "rabatt_wert",
   "design_ausstehend",
   "ist_test",
+  "sevdesk_kundennummer",
   ...ORDER_STEPS,
 ];
 const KONTAKT_PRAEFERENZ_VALUES = ["E-Mail", "WhatsApp"];

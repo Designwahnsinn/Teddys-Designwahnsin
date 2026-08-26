@@ -141,6 +141,8 @@ function render(order, allDesigns) {
   const emailInput = el("input", { type: "email", value: order.kunde_email, required: true });
   const instagramInput = el("input", { type: "text", value: order.kunde_instagram || "", placeholder: "@name" });
   const whatsappInput = el("input", { type: "tel", value: order.kunde_whatsapp || "", placeholder: "+49 …" });
+  // Referenz auf die Kundennummer in sevDesk (manuell, keine API-Anbindung).
+  const sevdeskInput = el("input", { type: "text", value: order.sevdesk_kundennummer || "", placeholder: "z. B. K-1024" });
   const praeferenzSelect = el("select");
   KONTAKT_PRAEFERENZ_VALUES.forEach((v) => {
     praeferenzSelect.appendChild(el("option", { value: v, textContent: v, selected: v === order.kontakt_praeferenz }));
@@ -243,6 +245,7 @@ function render(order, allDesigns) {
       rabatt_typ: rabattTypSelect.value || null,
       ist_test: istTestCheckbox.checked,
       design_ausstehend: designAusstehendCheckbox.checked,
+      sevdesk_kundennummer: sevdeskInput.value.trim(),
     };
     if (rabattTypSelect.value) patchBody.rabatt_wert = Number(rabattWertInput.value) || 0;
     stepCheckboxes.forEach((cb, key) => { patchBody[key] = cb.checked; });
@@ -364,6 +367,7 @@ function render(order, allDesigns) {
     el("label", { textContent: "E-Mail" }), emailInput,
     el("label", { textContent: "Instagram-Name" }), instagramInput,
     el("label", { textContent: "WhatsApp-Nummer" }), whatsappInput,
+    el("label", { textContent: "sevDesk-Kundennummer (optional)" }), sevdeskInput,
     el("label", { textContent: "Kontaktpräferenz" }), praeferenzSelect,
     el("label", { textContent: "Status" }), statusSelect,
     el("h2", { textContent: "Zugeordnete Designs" }),
