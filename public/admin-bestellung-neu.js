@@ -2,6 +2,13 @@ const titleEl = document.getElementById("wizard-title");
 const progressEl = document.getElementById("wizard-progress");
 const panelEl = document.getElementById("wizard-panel");
 
+// Sichtbarer Hinweis über den ganzen Wizard hinweg, damit man beim Arbeiten
+// nicht vergisst, dass man gerade in einer Testbestellung ist (die beim
+// Abschließen bewusst keine echten Verkaufszahlen/Exklusivrechte erzeugt).
+function titleFor(order, text) {
+  return order.ist_test ? `🧪 ${text} (Test)` : text;
+}
+
 // "bestaetigt" ist keine eigene DB-Spalte (siehe ORDER_STEPS-Kommentar in
 // db.js) - isStepDone() leitet sie aus terms_confirmed_at ab. Reihenfolge:
 // die Kundin muss dem Angebot zustimmen, BEVOR eine Zahlung dafür verbucht
@@ -219,6 +226,10 @@ function renderStep1Form() {
   const whatsappInput = el("input", { type: "tel", placeholder: "+49 151 …" });
   const praeferenzEmail = el("input", { type: "radio", name: "kontakt_praeferenz", value: "E-Mail", checked: true });
   const praeferenzWhatsapp = el("input", { type: "radio", name: "kontakt_praeferenz", value: "WhatsApp" });
+  // Testbestellung: erhöht beim Abschließen bewusst keine echten
+  // Verkaufszahlen/Exklusivrechte (siehe completeOrder in db.js) - zum
+  // gefahrlosen Durchklicken des kompletten Ablaufs beim Testen.
+  const istTestCheckbox = el("input", { type: "checkbox" });
   const errorMsg = el("p", { className: "wizard-error" });
   const submitBtn = el("button", { type: "submit", textContent: "Weiter zu Schritt 2" });
 
@@ -232,6 +243,7 @@ function renderStep1Form() {
       el("label", { className: "contact-pref-option" }, [praeferenzEmail, document.createTextNode(" E-Mail")]),
       el("label", { className: "contact-pref-option" }, [praeferenzWhatsapp, document.createTextNode(" WhatsApp")]),
     ]),
+    el("label", { className: "contact-pref-option" }, [istTestCheckbox, document.createTextNode(" 🧪 Dies ist eine Testbestellung (zum Ausprobieren)")]),
     errorMsg,
     submitBtn,
   ]);
@@ -247,6 +259,7 @@ function renderStep1Form() {
         kunde_instagram: instagramInput.value.trim(),
         kunde_whatsapp: whatsappInput.value.trim(),
         kontakt_praeferenz: praeferenzWhatsapp.checked ? "WhatsApp" : "E-Mail",
+        ist_test: istTestCheckbox.checked,
       }),
     });
     const data = await res.json();
@@ -263,7 +276,7 @@ function renderStep1Form() {
 }
 
 async function renderStep2DesignPicker(order) {
-  titleEl.textContent = `Bestellung #${order.id} – ${order.kunde_name}`;
+  titleEl.textContent = titleFor(order, `Bestellung #${order.id} – ${order.kunde_name}`);
   renderProgress(order);
   panelEl.innerHTML = "";
 
@@ -319,6 +332,11 @@ async function renderStep2DesignPicker(order) {
     value: order.notiz || "",
     placeholder: "z. B. weiteres Design von Instagram gewünscht, noch nicht hochgeladen …",
   });
+  // Kundin hat schon außerhalb des Systems gekauft (z.B. Instagram), das
+  // Design ist aber noch nicht hochgeladen - Erinnerung fürs Nachtragen,
+  // sobald es im System ist (siehe auch "Rechte manuell erfassen" für die
+  // Exklusivitäts-Seite davon).
+  const designAusstehendCheckbox = el("input", { type: "checkbox", checked: Boolean(order.design_ausstehend) });
 
   const errorMsg = el("p", { className: "wizard-error" });
   const continueBtn = el("button", { type: "button", textContent: "Weiter" });
@@ -352,7 +370,7 @@ async function renderStep2DesignPicker(order) {
     const notizRes = await fetch(`/api/admin/orders/${order.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ notiz }),
+      body: JSON.stringify({ notiz, design_ausstehend: designAusstehendCheckbox.checked }),
     });
     data = await notizRes.json();
     if (!notizRes.ok) {
@@ -368,6 +386,7 @@ async function renderStep2DesignPicker(order) {
     listEl,
     el("label", { textContent: "Notiz (z. B. noch nicht hochgeladene Designs)" }),
     notizInput,
+    el("label", { className: "contact-pref-option" }, [designAusstehendCheckbox, document.createTextNode(" ⏳ Design noch nicht im System (muss nachgetragen werden)")]),
     errorMsg,
     continueBtn
   );
@@ -690,7 +709,7 @@ function renderFileUploadBlock(order, { field, label, route }) {
 }
 
 function renderStepAction(order, stepKey) {
-  titleEl.textContent = `Bestellung #${order.id} – ${order.kunde_name}`;
+  titleEl.textContent = titleFor(order, `Bestellung #${order.id} – ${order.kunde_name}`);
   renderProgress(order);
   panelEl.innerHTML = "";
   panelEl.appendChild(renderPortalLinkBanner(order));
@@ -865,7 +884,7 @@ function renderAbschlussUebersicht(order) {
 }
 
 function renderCompleteStep(order) {
-  titleEl.textContent = `Bestellung #${order.id} – ${order.kunde_name}`;
+  titleEl.textContent = titleFor(order, `Bestellung #${order.id} – ${order.kunde_name}`);
   renderProgress(order);
   panelEl.innerHTML = "";
 
@@ -891,7 +910,7 @@ function renderCompleteStep(order) {
 }
 
 function renderDoneSummary(order) {
-  titleEl.textContent = `Bestellung #${order.id} – erledigt ✅`;
+  titleEl.textContent = titleFor(order, `Bestellung #${order.id} – erledigt ✅`);
   renderProgress(order);
   panelEl.innerHTML = "";
   panelEl.append(

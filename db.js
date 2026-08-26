@@ -401,6 +401,16 @@ ensureColumn("orders", "nennung_text_snapshot", "TEXT");
 // Gesamtpreis zeigen. rabatt_typ NULL = kein Rabatt.
 ensureColumn("orders", "rabatt_typ", "TEXT");
 ensureColumn("orders", "rabatt_wert", "REAL");
+// Kunde hat schon über Instagram (o.ä.) gekauft, das Design ist aber noch
+// nicht im System - Erinnerung, das nachzutragen, sobald das Design
+// hochgeladen ist (siehe auch design_lizenzen/addManualLizenz für die
+// Exklusivitäts-Seite davon).
+ensureColumn("orders", "design_ausstehend", "INTEGER NOT NULL DEFAULT 0");
+// Testbestellung beim Ausprobieren des Systems - erhöht beim Abschließen
+// bewusst NICHT den echten Verkaufszähler und vergibt keine echten
+// Exklusivrechte (siehe completeOrder), damit Testläufe keine echten Zahlen
+// verfälschen oder eine Farbvariante fälschlich blockieren.
+ensureColumn("orders", "ist_test", "INTEGER NOT NULL DEFAULT 0");
 
 // Wasserzeichen und Hintergrund-Variante waren früher eine einzige flache
 // Kategorie ("Mit Wasserzeichen" / "Ohne Wasserzeichen" / "Hintergrund-Variante"),
@@ -1061,10 +1071,10 @@ function deleteTag(name) {
 
 // --- Bestellungen ---
 
-function createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz }) {
+function createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, ist_test }) {
   const info = db.prepare(`
-    INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status, access_token, token_created_at)
-    VALUES (?, ?, ?, ?, ?, ?, 'Offen', ?, ?)
+    INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status, access_token, token_created_at, ist_test)
+    VALUES (?, ?, ?, ?, ?, ?, 'Offen', ?, ?, ?)
   `).run(
     encryptField(kunde_name),
     encryptField(kunde_email),
@@ -1073,7 +1083,8 @@ function createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp,
     kontakt_praeferenz || "E-Mail",
     new Date().toISOString(),
     generateOrderToken(),
-    new Date().toISOString()
+    new Date().toISOString(),
+    ist_test ? 1 : 0
   );
   return getOrder(info.lastInsertRowid);
 }
@@ -1310,6 +1321,8 @@ const ORDER_UPDATE_FIELDS = [
   "notiz",
   "rabatt_typ",
   "rabatt_wert",
+  "design_ausstehend",
+  "ist_test",
   ...ORDER_STEPS,
 ];
 const KONTAKT_PRAEFERENZ_VALUES = ["E-Mail", "WhatsApp"];
@@ -1321,10 +1334,11 @@ function updateOrder(id, changes) {
   const existing = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
   if (!existing) return null;
 
+  const BOOLEAN_FIELDS = [...ORDER_STEPS, "design_ausstehend", "ist_test"];
   const sanitized = {};
   for (const key of Object.keys(changes)) {
     if (!ORDER_UPDATE_FIELDS.includes(key)) continue;
-    if (ORDER_STEPS.includes(key)) sanitized[key] = changes[key] ? 1 : 0;
+    if (BOOLEAN_FIELDS.includes(key)) sanitized[key] = changes[key] ? 1 : 0;
     else if (ORDER_PII_FIELDS.includes(key)) sanitized[key] = encryptField(changes[key]);
     else sanitized[key] = changes[key];
   }
@@ -1439,30 +1453,38 @@ const completeOrder = db.transaction((orderId) => {
   }
 
   db.prepare("UPDATE orders SET status = 'Erledigt' WHERE id = ?").run(orderId);
-  // Zählt verkaufte Varianten, nicht nur "wurde dieses Design in irgendeiner
-  // Bestellung verkauft" - 2 gekaufte Design-Varianten (siehe
-  // designVariantenAnzahl/countDesignTypVarianten) erhöhen den Zähler um 2,
-  // nicht nur um 1. Wurde nur PNG oder Hintergrund gekauft (kein
-  // Design-Baustein), zählt das wie bisher als 1 Verkauf.
-  const incrementCounter = db.prepare(
-    "UPDATE designs SET verkaufszaehler = verkaufszaehler + ? WHERE id = ?"
-  );
-  for (const design of order.designs) {
-    const preisoptionen = design.preisoptionen && design.preisoptionen.length > 0 ? design.preisoptionen : ["design"];
-    const anzahl = preisoptionen.includes("design") ? Math.max(design.designVariantenAnzahl || 1, 1) : 1;
-    incrementCounter.run(anzahl, design.id);
-  }
 
-  // Exklusive Rechte werden erst jetzt, beim tatsächlichen Abschluss, fest
-  // vergeben (siehe Kommentar an order_designs.exklusiveGruppen) - vorher war
-  // es nur ein Vorschlag im Angebot, den ein Kunde nie bestätigt haben könnte.
-  const insertLizenz = db.prepare(
-    "INSERT INTO design_lizenzen (order_id, design_id, gruppe, bestandteil, exklusiv, createdAt) VALUES (?, ?, ?, ?, 1, ?)"
-  );
-  const now = new Date().toISOString();
-  for (const design of order.designs) {
-    for (const entry of design.exklusiveGruppen || []) {
-      insertLizenz.run(orderId, design.id, entry.gruppe || null, entry.bestandteil, now);
+  // Testbestellungen (siehe ensureColumn-Kommentar zu ist_test) durchlaufen
+  // den kompletten Ablauf inkl. Konfliktprüfung oben, lösen aber bewusst
+  // keine echten Nebenwirkungen aus - sonst würde jeder Testlauf des Wizards
+  // die echten Verkaufszahlen verfälschen oder eine Farbvariante blockieren,
+  // die eigentlich noch frei ist.
+  if (!order.ist_test) {
+    // Zählt verkaufte Varianten, nicht nur "wurde dieses Design in irgendeiner
+    // Bestellung verkauft" - 2 gekaufte Design-Varianten (siehe
+    // designVariantenAnzahl/countDesignTypVarianten) erhöhen den Zähler um 2,
+    // nicht nur um 1. Wurde nur PNG oder Hintergrund gekauft (kein
+    // Design-Baustein), zählt das wie bisher als 1 Verkauf.
+    const incrementCounter = db.prepare(
+      "UPDATE designs SET verkaufszaehler = verkaufszaehler + ? WHERE id = ?"
+    );
+    for (const design of order.designs) {
+      const preisoptionen = design.preisoptionen && design.preisoptionen.length > 0 ? design.preisoptionen : ["design"];
+      const anzahl = preisoptionen.includes("design") ? Math.max(design.designVariantenAnzahl || 1, 1) : 1;
+      incrementCounter.run(anzahl, design.id);
+    }
+
+    // Exklusive Rechte werden erst jetzt, beim tatsächlichen Abschluss, fest
+    // vergeben (siehe Kommentar an order_designs.exklusiveGruppen) - vorher war
+    // es nur ein Vorschlag im Angebot, den ein Kunde nie bestätigt haben könnte.
+    const insertLizenz = db.prepare(
+      "INSERT INTO design_lizenzen (order_id, design_id, gruppe, bestandteil, exklusiv, createdAt) VALUES (?, ?, ?, ?, 1, ?)"
+    );
+    const now = new Date().toISOString();
+    for (const design of order.designs) {
+      for (const entry of design.exklusiveGruppen || []) {
+        insertLizenz.run(orderId, design.id, entry.gruppe || null, entry.bestandteil, now);
+      }
     }
   }
 

@@ -1318,7 +1318,8 @@ app.post("/api/admin/orders", requireAuth, (req, res) => {
   if (!db.KONTAKT_PRAEFERENZ_VALUES.includes(kontakt_praeferenz)) {
     return res.status(400).json({ error: "Ungültige Kontaktpräferenz" });
   }
-  res.status(201).json(db.createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz }));
+  const ist_test = req.body.ist_test === true;
+  res.status(201).json(db.createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, ist_test }));
 });
 
 // Schritt 2: Designs zuordnen (optional mit varianten: { [designId]: string[] } -
@@ -1492,6 +1493,8 @@ app.patch("/api/admin/orders/:id", requireAuth, (req, res) => {
   for (const step of db.ORDER_STEPS) {
     if (req.body[step] !== undefined) changes[step] = Boolean(req.body[step]);
   }
+  if (req.body.design_ausstehend !== undefined) changes.design_ausstehend = Boolean(req.body.design_ausstehend);
+  if (req.body.ist_test !== undefined) changes.ist_test = Boolean(req.body.ist_test);
 
   const updated = db.updateOrder(Number(req.params.id), changes);
   if (!updated) return res.status(404).json({ error: "Bestellung nicht gefunden" });

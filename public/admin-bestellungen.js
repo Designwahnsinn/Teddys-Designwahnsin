@@ -1,9 +1,15 @@
 const filtersEl = document.getElementById("order-filters");
+const testFiltersEl = document.getElementById("test-filters");
 const rowsEl = document.getElementById("order-rows");
 const emptyEl = document.getElementById("order-empty");
 
 const STATUS_FILTERS = ["Alle", "Offen", "In Bearbeitung", "Erledigt", "Storniert"];
 const STATUS_VALUES = ["Offen", "In Bearbeitung", "Erledigt", "Storniert"];
+// Orthogonal zum Status-Filter (eine Testbestellung kann in jedem Status
+// sein) - deshalb ein zweiter, unabhängiger Filter statt eine Kombination
+// aus beidem in einer Liste.
+const TEST_FILTERS = ["Alle", "Ohne Tests", "Nur Tests"];
+let testFilter = "Alle";
 // "bestaetigt" ist keine eigene DB-Spalte, sondern leitet sich aus
 // terms_confirmed_at ab - gleiches Modell wie in admin-bestellung-neu.js.
 const STEP_LABELS = {
@@ -58,10 +64,29 @@ function renderFilters() {
   });
 }
 
+function renderTestFilters() {
+  testFiltersEl.innerHTML = "";
+  TEST_FILTERS.forEach((label) => {
+    const btn = el("button", {
+      type: "button",
+      className: `filter-btn${label === testFilter ? " active" : ""}`,
+      textContent: label,
+    });
+    btn.addEventListener("click", () => {
+      testFilter = label;
+      renderTestFilters();
+      loadOrders();
+    });
+    testFiltersEl.appendChild(btn);
+  });
+}
+
 async function loadOrders() {
   const query = activeFilter === "Alle" ? "" : `?status=${encodeURIComponent(activeFilter)}`;
   const res = await fetch(`/api/admin/orders${query}`);
-  const orders = await res.json();
+  let orders = await res.json();
+  if (testFilter === "Ohne Tests") orders = orders.filter((o) => !o.ist_test);
+  else if (testFilter === "Nur Tests") orders = orders.filter((o) => o.ist_test);
 
   rowsEl.innerHTML = "";
   emptyEl.hidden = orders.length > 0;
@@ -96,12 +121,17 @@ async function loadOrders() {
       });
     });
 
+    const badges = [];
+    if (order.ist_test) badges.push(el("span", { className: "order-flag-badge order-flag-test", textContent: "🧪 Test" }));
+    if (order.design_ausstehend) badges.push(el("span", { className: "order-flag-badge order-flag-pending", textContent: "⏳ Design ausstehend" }));
+
     row.append(
       el("td", {}, [
         el("strong", { textContent: order.kunde_name }),
         el("div", { className: "muted", textContent: order.kunde_email }),
         el("div", { className: "muted", textContent: contactIcon }),
-      ]),
+        badges.length > 0 ? el("div", { className: "order-flag-row" }, badges) : null,
+      ].filter(Boolean)),
       el("td", { textContent: order.designs.map((d) => d.name).join(", ") || "–" }),
       el("td", { textContent: currentStepLabel(order) }),
       el("td", { textContent: formatDate(order.bestelldatum) }),
@@ -114,4 +144,5 @@ async function loadOrders() {
 }
 
 renderFilters();
+renderTestFilters();
 loadOrders();

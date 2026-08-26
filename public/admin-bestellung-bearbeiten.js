@@ -125,12 +125,16 @@ async function loadAllDesigns() {
 }
 
 function render(order, allDesigns) {
-  titleEl.textContent = `Bestellung #${order.id} bearbeiten`;
+  titleEl.textContent = order.ist_test ? `🧪 Bestellung #${order.id} bearbeiten (Test)` : `Bestellung #${order.id} bearbeiten`;
   panelEl.innerHTML = "";
 
   const assignedIds = new Set(order.designs.map((d) => d.id));
   const errorMsg = el("p", { className: "wizard-error" });
   const successMsg = el("p", { className: "wizard-hint" });
+
+  // --- Test-/Design-ausstehend-Flags ---
+  const istTestCheckbox = el("input", { type: "checkbox", checked: Boolean(order.ist_test) });
+  const designAusstehendCheckbox = el("input", { type: "checkbox", checked: Boolean(order.design_ausstehend) });
 
   // --- Kunde ---
   const nameInput = el("input", { type: "text", value: order.kunde_name, required: true });
@@ -237,6 +241,8 @@ function render(order, allDesigns) {
       status: statusSelect.value,
       notiz: notizInput.value,
       rabatt_typ: rabattTypSelect.value || null,
+      ist_test: istTestCheckbox.checked,
+      design_ausstehend: designAusstehendCheckbox.checked,
     };
     if (rabattTypSelect.value) patchBody.rabatt_wert = Number(rabattWertInput.value) || 0;
     stepCheckboxes.forEach((cb, key) => { patchBody[key] = cb.checked; });
@@ -352,6 +358,8 @@ function render(order, allDesigns) {
   });
 
   panelEl.append(
+    el("label", { className: "wizard-design-row" }, [istTestCheckbox, document.createTextNode(" 🧪 Testbestellung (keine echten Verkaufszahlen/Exklusivrechte beim Abschließen)")]),
+    el("label", { className: "wizard-design-row" }, [designAusstehendCheckbox, document.createTextNode(" ⏳ Design noch nicht im System (muss nachgetragen werden)")]),
     el("label", { textContent: "Kundenname" }), nameInput,
     el("label", { textContent: "E-Mail" }), emailInput,
     el("label", { textContent: "Instagram-Name" }), instagramInput,

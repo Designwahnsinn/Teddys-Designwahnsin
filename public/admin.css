@@ -581,6 +581,18 @@
 .confirm-badge.confirm-yes { background: #dff5e3; color: #2d7a4f; }
 .confirm-badge.confirm-no { background: #f0f0f0; color: var(--muted); }
 
+.order-flag-row { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.3rem; }
+.order-flag-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.order-flag-test { background: #ede7f6; color: #5e35b1; }
+.order-flag-pending { background: #fff3e0; color: #a6660b; }
+
 .link-status-badge {
   display: inline-block;
   padding: 0.25rem 0.7rem;
