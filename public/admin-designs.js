@@ -328,7 +328,11 @@ cardsEl.addEventListener("click", async (e) => {
   if (!e.target.classList.contains("delete-btn")) return;
   const id = e.target.dataset.id;
   if (!confirm("Dieses Design wirklich löschen?")) return;
-  await fetch(`/api/admin/designs/${id}`, { method: "DELETE" });
+  const res = await fetch(`/api/admin/designs/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || "Fehler beim Löschen.");
+  }
   loadDesigns();
 });
 
@@ -356,7 +360,14 @@ document.getElementById("bulk-online").addEventListener("click", () => bulkSetOn
 document.getElementById("bulk-offline").addEventListener("click", () => bulkSetOnline(false));
 document.getElementById("bulk-delete").addEventListener("click", async () => {
   if (!confirm(`${selectedIds.size} Design(s) wirklich unwiderruflich löschen?`)) return;
-  await Promise.all([...selectedIds].map((id) => fetch(`/api/admin/designs/${id}`, { method: "DELETE" })));
+  const results = await Promise.all([...selectedIds].map(async (id) => {
+    const res = await fetch(`/api/admin/designs/${id}`, { method: "DELETE" });
+    if (res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    return `${id}: ${data.error || "Fehler beim Löschen."}`;
+  }));
+  const failed = results.filter(Boolean);
+  if (failed.length > 0) alert(failed.join("\n"));
   selectedIds.clear();
   updateBulkToolbar();
   loadDesigns();

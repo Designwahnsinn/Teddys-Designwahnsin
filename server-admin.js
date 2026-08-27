@@ -780,7 +780,12 @@ app.patch("/api/admin/designs/:id", requireAuth, (req, res) => {
 });
 
 app.delete("/api/admin/designs/:id", requireAuth, async (req, res) => {
-  const removed = db.deleteDesign(req.params.id);
+  let removed;
+  try {
+    removed = db.deleteDesign(req.params.id);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
   if (!removed) return res.status(404).json({ error: "Nicht gefunden" });
 
   for (const img of removed.allImagePaths) {

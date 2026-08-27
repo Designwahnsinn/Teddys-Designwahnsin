@@ -741,6 +741,19 @@ function updateDesign(id, changes) {
 function deleteDesign(id) {
   const target = db.prepare("SELECT * FROM designs WHERE id = ?").get(id);
   if (!target) return null;
+  // order_designs und design_lizenzen referenzieren designs bewusst OHNE ON
+  // DELETE CASCADE (siehe Schema oben) - ein Design, das bereits bestellt
+  // wurde oder für das Rechte-/Exklusivitätsnachweise bestehen, darf nicht
+  // gelöscht werden, sonst geht echte Bestell-/Rechtehistorie verloren. Ohne
+  // diesen Check wirft SQLite hier einen FOREIGN KEY-Fehler, der unbehandelt
+  // bis zum Prozess durchschlägt und den ganzen Server crasht.
+  const usedInOrder = db.prepare("SELECT 1 FROM order_designs WHERE design_id = ? LIMIT 1").get(id);
+  const hasLizenz = db.prepare("SELECT 1 FROM design_lizenzen WHERE design_id = ? LIMIT 1").get(id);
+  if (usedInOrder || hasLizenz) {
+    const err = new Error("Design kann nicht gelöscht werden, da es bereits in mindestens einer Bestellung verwendet wurde.");
+    err.status = 409;
+    throw err;
+  }
   // Alle Bild-Dateipfade (Original + Vorschaubild) vorher einsammeln
   // (design_images fällt per ON DELETE CASCADE mit weg, die Dateien auf der
   // Platte muss der Aufrufer selbst löschen)
