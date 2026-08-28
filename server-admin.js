@@ -1404,9 +1404,12 @@ app.get("/api/admin/design-lizenzen", requireAuth, (req, res) => {
 // Rechte-Vergabe außerhalb des Bestellassistenten (z.B. Verkauf persönlich
 // vereinbart, nachträglich erfasst) - siehe db.addManualLizenzBatch. items
 // erlaubt mehrere Design/Varianten-Kombinationen aus einem Verkauf in einer
-// gemeinsamen Beleg-Bestellung statt in mehreren unabhängigen (Feedback #17).
+// gemeinsamen Bestellung statt in mehreren unabhängigen (Feedback #17).
+// existingOrderId (optional) hängt die Erfassung an eine bereits bestehende
+// Bestellung an statt eine neue Beleg-Bestellung anzulegen (Feedback: Verkauf
+// war schon eine echte Bestellung im System) - kundeName/notiz dann optional.
 app.post("/api/admin/design-lizenzen/manuell", requireAuth, (req, res) => {
-  const { items, kundeName, notiz } = req.body;
+  const { items, kundeName, notiz, existingOrderId } = req.body;
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "Mindestens ein Design ist erforderlich" });
   }
@@ -1415,7 +1418,8 @@ app.post("/api/admin/design-lizenzen/manuell", requireAuth, (req, res) => {
       return res.status(400).json({ error: "designId ist für jede Zeile erforderlich" });
     }
   }
-  if (!kundeName || typeof kundeName !== "string" || !kundeName.trim()) {
+  const usingExistingOrder = existingOrderId !== undefined && existingOrderId !== null && existingOrderId !== "";
+  if (!usingExistingOrder && (!kundeName || typeof kundeName !== "string" || !kundeName.trim())) {
     return res.status(400).json({ error: "kundeName ist erforderlich" });
   }
   try {
@@ -1424,8 +1428,9 @@ app.post("/api/admin/design-lizenzen/manuell", requireAuth, (req, res) => {
         designId: item.designId,
         gruppe: item.gruppe && typeof item.gruppe === "string" ? item.gruppe.trim() || null : null,
       })),
-      kundeName: kundeName.trim(),
+      kundeName: kundeName && typeof kundeName === "string" ? kundeName.trim() : "",
       notiz: notiz && typeof notiz === "string" ? notiz.trim() : "",
+      existingOrderId: usingExistingOrder ? Number(existingOrderId) : null,
     });
     res.json(result);
   } catch (err) {

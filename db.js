@@ -1137,18 +1137,33 @@ function createOrder({ kunde_name, kunde_email, kunde_instagram, kunde_whatsapp,
 // ausgewählte Varianten-Labels, optional.
 function setOrderDesigns(orderId, designIds, variantenMap = {}) {
   const setDesigns = db.transaction((ids, varianten) => {
-    // preisoptionen wird an anderer Stelle (Angebot-Schritt) gepflegt - beim
-    // Neuzuordnen von Designs hier erhalten bleiben, statt beim
-    // Löschen+Neuanlegen der Zeilen verloren zu gehen.
-    const existingPreisoptionen = new Map(
-      db.prepare("SELECT design_id, preisoptionen FROM order_designs WHERE order_id = ?").all(orderId)
-        .map((r) => [r.design_id, r.preisoptionen])
+    // preisoptionen und exklusiveGruppen werden an anderer Stelle
+    // (Angebot-Schritt) gepflegt - beim Neuzuordnen von Designs hier erhalten
+    // bleiben, statt beim Löschen+Neuanlegen der Zeilen verloren zu gehen.
+    const existing = new Map(
+      db.prepare("SELECT design_id, preisoptionen, exklusiveGruppen FROM order_designs WHERE order_id = ?").all(orderId)
+        .map((r) => [r.design_id, r])
     );
     db.prepare("DELETE FROM order_designs WHERE order_id = ?").run(orderId);
-    const insert = db.prepare("INSERT INTO order_designs (order_id, design_id, varianten, preisoptionen) VALUES (?, ?, ?, ?)");
+    const insert = db.prepare("INSERT INTO order_designs (order_id, design_id, varianten, preisoptionen, exklusiveGruppen) VALUES (?, ?, ?, ?, ?)");
     for (const designId of ids) {
       const selected = Array.isArray(varianten[designId]) ? varianten[designId].filter((v) => typeof v === "string") : [];
-      insert.run(orderId, designId, selected.length > 0 ? JSON.stringify(selected) : null, existingPreisoptionen.get(designId) || null);
+      const prior = existing.get(designId);
+      let exklusiveGruppenJson = prior ? prior.exklusiveGruppen : null;
+      if (!prior) {
+        // Neu zugeordnetes Design: jedes verkaufte Design ist im Normalfall
+        // exklusiv (Feedback) - nicht-exklusiv ist die Ausnahme und muss in
+        // Schritt 3 aktiv abgewählt werden, statt standardmäßig unvergeben zu
+        // bleiben, nur weil niemand die Checkbox angeklickt hat. Ist die
+        // abgeleitete Gruppe schon anderweitig exklusiv vergeben, lieber gar
+        // nicht erst vorbelegen - der Konflikt zeigt sich sonst erst spät
+        // beim Abschließen; Mitarbeitende sehen in Schritt 3 stattdessen eine
+        // unangehakte Checkbox und den Konflikt sofort, wenn sie sie setzen.
+        const gruppe = deriveGruppeFromVarianten(designId, selected);
+        const konflikt = findExklusivKonflikte(designId, [{ gruppe, bestandteil: "design" }]).length > 0;
+        exklusiveGruppenJson = konflikt ? null : JSON.stringify([{ gruppe, bestandteil: "design" }]);
+      }
+      insert.run(orderId, designId, selected.length > 0 ? JSON.stringify(selected) : null, prior ? prior.preisoptionen : null, exklusiveGruppenJson);
     }
     // Wenn der Kunde die Bestellung schon über das Order-Portal bestätigt
     // hatte, macht eine nachträgliche Design-Änderung diese Bestätigung
@@ -1216,6 +1231,23 @@ function countDesignTypVarianten(designId, varianten) {
     if (typ === "Design" && varianten.includes(label)) count++;
   });
   return count;
+}
+
+// Leitet aus den in Schritt 2 gewählten Varianten-Labels die zugehörige
+// Gruppe ab, sofern eindeutig - dieselbe Label-Konstruktion wie oben und im
+// Client (gruppenAusAuswahl in admin-bestellung-neu.js), damit dieselben
+// Strings matchen. Mehrdeutig (mehrere Gruppen in der Auswahl) oder keine
+// Gruppe gepflegt -> null (dann gilt die Exklusivität fürs ganze Design).
+function deriveGruppeFromVarianten(designId, varianten) {
+  if (!varianten || varianten.length === 0) return null;
+  const images = getDesignImages(designId).filter((img) => img.wasserzeichen);
+  const gruppen = new Set();
+  images.forEach((img, i) => {
+    const typ = img.typ || (img.hintergrundVariante ? "Hintergrund-Variante" : "Design");
+    const label = img.bezeichnung ? `${i + 1}. ${typ} – ${img.bezeichnung}` : `${i + 1}. ${typ}`;
+    if (varianten.includes(label) && img.gruppe) gruppen.add(img.gruppe);
+  });
+  return gruppen.size === 1 ? [...gruppen][0] : null;
 }
 
 function designsWithVarianten(orderId) {
@@ -1566,18 +1598,24 @@ function revokeLizenz(id) {
 
 // Rechte-Vergabe außerhalb des Bestellassistenten - z.B. wenn ein Verkauf
 // persönlich/außerhalb des Systems vereinbart wurde und nachträglich als
-// exklusiv erfasst werden muss. Legt dafür eine minimale, bereits
-// abgeschlossene Bestellung an (nur um die Kundenzuordnung wie bei jeder
-// anderen Rechte-Vergabe nachvollziehbar zu dokumentieren), ohne den vollen
-// Schritt-Ablauf des Wizards zu durchlaufen. Nur "design" ist exklusiv
+// exklusiv erfasst werden muss. Legt dafür standardmäßig eine minimale,
+// bereits abgeschlossene Bestellung an (nur um die Kundenzuordnung wie bei
+// jeder anderen Rechte-Vergabe nachvollziehbar zu dokumentieren), ohne den
+// vollen Schritt-Ablauf des Wizards zu durchlaufen. Wird existingOrderId
+// übergeben, hängt sich die Erfassung stattdessen an eine bereits
+// bestehende (echte) Bestellung an, statt eine weitere Beleg-Bestellung
+// für denselben Verkauf anzulegen (Feedback: Verkauf war schon als
+// Bestellung im System, nachträgliche Exklusivität soll dort landen statt
+// in einer neuen Dopplung) - kundeName/notiz werden dann ignoriert, die
+// bestehende Bestellung hat ihre eigenen. Nur "design" ist exklusiv
 // möglich (siehe Validierung in server-admin.js) - PNG/Hintergrund bleiben
 // geschäftlich immer für alle Kundinnen kaufbar, auch bei manueller Erfassung.
 // items: [{ designId, gruppe }] - mehrere Design/Varianten-Kombinationen aus
 // einem einzigen persönlich vereinbarten Verkauf landen dadurch in EINER
-// gemeinsamen Beleg-Bestellung statt in mehreren unabhängigen (Feedback #17).
+// gemeinsamen Bestellung statt in mehreren unabhängigen (Feedback #17).
 // Konflikte werden für alle Items vorab geprüft, bevor irgendetwas
 // geschrieben wird - entweder geht die ganze Erfassung durch oder keine.
-const addManualLizenzBatch = db.transaction(({ items, kundeName, notiz }) => {
+const addManualLizenzBatch = db.transaction(({ items, kundeName, notiz, existingOrderId }) => {
   if (!items || items.length === 0) {
     const err = new Error("Mindestens ein Design ist erforderlich");
     err.status = 400;
@@ -1608,21 +1646,36 @@ const addManualLizenzBatch = db.transaction(({ items, kundeName, notiz }) => {
     throw err;
   }
   const now = new Date().toISOString();
-  const orderInfo = db.prepare(`
-    INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status, notiz, access_token, token_created_at, manuell)
-    VALUES (?, ?, ?, ?, 'E-Mail', ?, 'Erledigt', ?, ?, ?, 1)
-  `).run(
-    encryptField(kundeName),
-    encryptField(""),
-    encryptField(""),
-    encryptField(""),
-    now,
-    encryptField(notiz || "Manuell erfasste Rechte-Vergabe (außerhalb des Bestellassistenten)"),
-    generateOrderToken(),
-    now
+  let orderId;
+  if (existingOrderId) {
+    const order = db.prepare("SELECT id FROM orders WHERE id = ?").get(existingOrderId);
+    if (!order) {
+      const err = new Error("Bestellung nicht gefunden");
+      err.status = 404;
+      throw err;
+    }
+    orderId = existingOrderId;
+  } else {
+    const orderInfo = db.prepare(`
+      INSERT INTO orders (kunde_name, kunde_email, kunde_instagram, kunde_whatsapp, kontakt_praeferenz, bestelldatum, status, notiz, access_token, token_created_at, manuell)
+      VALUES (?, ?, ?, ?, 'E-Mail', ?, 'Erledigt', ?, ?, ?, 1)
+    `).run(
+      encryptField(kundeName),
+      encryptField(""),
+      encryptField(""),
+      encryptField(""),
+      now,
+      encryptField(notiz || "Manuell erfasste Rechte-Vergabe (außerhalb des Bestellassistenten)"),
+      generateOrderToken(),
+      now
+    );
+    orderId = orderInfo.lastInsertRowid;
+  }
+  const insertedDesignIds = new Set(
+    existingOrderId
+      ? db.prepare("SELECT design_id FROM order_designs WHERE order_id = ?").all(orderId).map((r) => r.design_id)
+      : []
   );
-  const orderId = orderInfo.lastInsertRowid;
-  const insertedDesignIds = new Set();
   for (const item of items) {
     if (!insertedDesignIds.has(item.designId)) {
       db.prepare("INSERT INTO order_designs (order_id, design_id) VALUES (?, ?)").run(orderId, item.designId);

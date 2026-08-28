@@ -25,17 +25,29 @@
     <details class="rechte-manual-details">
       <summary>+ Rechte manuell erfassen (Verkauf außerhalb des Bestellassistenten)</summary>
       <form class="upload-form" id="rechte-manual-form">
-        <p class="field-hint">Für Verkäufe, die nicht über den Bestell-Assistenten liefen (z. B. persönlich vereinbart) und nachträglich als exklusiv erfasst werden müssen. Legt automatisch eine abgeschlossene Bestellung als Beleg an. Mehrere Designs/Varianten aus demselben Verkauf landen in derselben Beleg-Bestellung.</p>
+        <p class="field-hint">Für Verkäufe, die nicht über den Bestell-Assistenten liefen (z. B. persönlich vereinbart) und nachträglich als exklusiv erfasst werden müssen. Mehrere Designs/Varianten aus demselben Verkauf landen in derselben Bestellung.</p>
+        <div class="rechte-manual-target-toggle">
+          <label><input type="radio" name="rechte-manual-target" id="rechte-manual-target-new" checked> Neue Beleg-Bestellung anlegen</label>
+          <label><input type="radio" name="rechte-manual-target" id="rechte-manual-target-existing"> An bestehende Bestellung anhängen</label>
+        </div>
+        <div id="rechte-manual-existing-order-field" hidden>
+          <label for="rechte-manual-order">Bestellung</label>
+          <input type="text" id="rechte-manual-order" list="rechte-manual-order-list" placeholder="Kundenname oder Bestellnummer …">
+          <datalist id="rechte-manual-order-list"></datalist>
+          <p class="field-hint">Der Verkauf war schon eine echte Bestellung im System - die Rechte-Erfassung wird direkt daran angehängt, statt eine neue Beleg-Bestellung anzulegen.</p>
+        </div>
         <datalist id="rechte-manual-design-list"></datalist>
         <div id="rechte-manual-rows"></div>
         <button type="button" id="rechte-manual-add-row" class="edit-btn">+ weiteres Design</button>
-        <div>
-          <label for="rechte-manual-kunde">Kundin/Kunde</label>
-          <input type="text" id="rechte-manual-kunde" required>
-        </div>
-        <div>
-          <label for="rechte-manual-notiz">Notiz (optional)</label>
-          <input type="text" id="rechte-manual-notiz" placeholder="z. B. wie und wann vereinbart">
+        <div id="rechte-manual-new-order-fields">
+          <div>
+            <label for="rechte-manual-kunde">Kundin/Kunde</label>
+            <input type="text" id="rechte-manual-kunde">
+          </div>
+          <div>
+            <label for="rechte-manual-notiz">Notiz (optional)</label>
+            <input type="text" id="rechte-manual-notiz" placeholder="z. B. wie und wann vereinbart">
+          </div>
         </div>
         <button type="submit">Als exklusiv erfassen</button>
         <p id="rechte-manual-error" class="edit-error"></p>

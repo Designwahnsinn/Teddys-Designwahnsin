@@ -80,9 +80,34 @@ const manualDesignList = document.getElementById("rechte-manual-design-list");
 const manualKundeInput = document.getElementById("rechte-manual-kunde");
 const manualNotizInput = document.getElementById("rechte-manual-notiz");
 const manualError = document.getElementById("rechte-manual-error");
+const manualTargetNewRadio = document.getElementById("rechte-manual-target-new");
+const manualTargetExistingRadio = document.getElementById("rechte-manual-target-existing");
+const manualExistingOrderField = document.getElementById("rechte-manual-existing-order-field");
+const manualNewOrderFields = document.getElementById("rechte-manual-new-order-fields");
+const manualOrderInput = document.getElementById("rechte-manual-order");
+const manualOrderList = document.getElementById("rechte-manual-order-list");
 
 let allDesigns = [];
+let allOrders = [];
 let manualRows = [];
+
+// Umschalter "Neue Beleg-Bestellung" / "An bestehende Bestellung anhängen"
+// (Feedback: ein Verkauf, der schon eine echte Bestellung im System war,
+// soll dort die Exklusivität nachtragen statt eine Dopplung anzulegen).
+function updateManualTargetMode() {
+  const existing = manualTargetExistingRadio.checked;
+  manualExistingOrderField.hidden = !existing;
+  manualNewOrderFields.hidden = existing;
+}
+manualTargetNewRadio.addEventListener("change", updateManualTargetMode);
+manualTargetExistingRadio.addEventListener("change", updateManualTargetMode);
+
+function findOrderByInput(value) {
+  const trimmed = (value || "").trim();
+  const match = /^#(\d+)/.exec(trimmed);
+  if (match) return allOrders.find((o) => String(o.id) === match[1]);
+  return allOrders.find((o) => `#${o.id} · ${o.kunde_name} (${o.kunde_email})` === trimmed);
+}
 
 function findDesignByInput(value) {
   const trimmed = (value || "").trim();
@@ -147,14 +172,27 @@ manualForm.addEventListener("submit", async (e) => {
     items.push({ designId: design.id, gruppe: row.gruppeSelect.value });
   }
 
+  const body = { items };
+  if (manualTargetExistingRadio.checked) {
+    const order = findOrderByInput(manualOrderInput.value);
+    if (!order) {
+      manualError.textContent = "Bitte eine Bestellung aus der Liste wählen.";
+      return;
+    }
+    body.existingOrderId = order.id;
+  } else {
+    if (!manualKundeInput.value.trim()) {
+      manualError.textContent = "Kundin/Kunde ist erforderlich.";
+      return;
+    }
+    body.kundeName = manualKundeInput.value;
+    body.notiz = manualNotizInput.value;
+  }
+
   const res = await fetch("/api/admin/design-lizenzen/manuell", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      items,
-      kundeName: manualKundeInput.value,
-      notiz: manualNotizInput.value,
-    }),
+    body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -167,16 +205,20 @@ manualForm.addEventListener("submit", async (e) => {
   manualRowsEl.innerHTML = "";
   manualRows = [];
   addManualRow();
+  updateManualTargetMode();
 });
 
 async function init() {
-  const [rechteRes, designsRes] = await Promise.all([
+  const [rechteRes, designsRes, ordersRes] = await Promise.all([
     fetch("/api/admin/design-lizenzen"),
     fetch("/api/admin/designs"),
+    fetch("/api/admin/orders"),
   ]);
   allRechte = await rechteRes.json();
   allDesigns = await designsRes.json();
+  allOrders = await ordersRes.json();
   allDesigns.forEach((d) => manualDesignList.appendChild(el("option", { value: `${d.id} · ${d.name}` })));
+  allOrders.forEach((o) => manualOrderList.appendChild(el("option", { value: `#${o.id} · ${o.kunde_name} (${o.kunde_email})` })));
   addManualRow();
   render();
 }
