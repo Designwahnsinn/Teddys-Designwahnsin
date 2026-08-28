@@ -44,7 +44,7 @@
     el("option", { value: "Fehlt", textContent: "Fehlt" }),
     el("option", { value: "Idee", textContent: "Idee" }),
   ]);
-  const textField = el("textarea", { className: "feedback-widget-text", rows: 3, placeholder: "Kurz notieren …" });
+  const textField = el("textarea", { className: "feedback-widget-text", rows: 5, placeholder: "Kurz notieren …" });
   const statusEl = el("span", { className: "feedback-widget-status" });
   const saveBtn = el("button", { type: "button", className: "feedback-widget-save", textContent: "Speichern" });
   const panel = el("div", { className: "feedback-widget-panel", hidden: true }, [

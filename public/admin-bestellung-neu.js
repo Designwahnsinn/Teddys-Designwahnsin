@@ -127,10 +127,11 @@ document.addEventListener("click", (e) => {
 
 // Designs-Schritt gilt auch als erledigt, wenn (noch) kein echtes Design im
 // System zugeordnet ist, aber eine Notiz zu noch nicht hochgeladenen Designs
-// hinterlegt wurde - sonst kommt man mit reinen Instagram-Anfragen nie weiter.
+// hinterlegt wurde oder "Design noch nicht im System" angekreuzt ist - sonst
+// kommt man mit reinen Instagram-Anfragen nie weiter.
 function isStepDone(order, key) {
   if (key === "kunde") return true;
-  if (key === "designs") return order.designs.length > 0 || Boolean(order.notiz);
+  if (key === "designs") return order.designs.length > 0 || Boolean(order.notiz) || Boolean(order.design_ausstehend);
   if (key === "complete") return order.status === "Erledigt";
   if (key === "bestaetigt") return Boolean(order.terms_confirmed_at);
   return Boolean(order[key]);
@@ -343,8 +344,8 @@ async function renderStep2DesignPicker(order) {
   continueBtn.addEventListener("click", async () => {
     const designIds = [...checkboxes.entries()].filter(([, cb]) => cb.checked).map(([id]) => id);
     const notiz = notizInput.value.trim();
-    if (designIds.length === 0 && !notiz) {
-      errorMsg.textContent = "Mindestens ein Design auswählen oder eine Notiz eintragen.";
+    if (designIds.length === 0 && !notiz && !designAusstehendCheckbox.checked) {
+      errorMsg.textContent = "Mindestens ein Design auswählen, eine Notiz eintragen oder \"Design noch nicht im System\" ankreuzen.";
       return;
     }
 
@@ -949,10 +950,10 @@ function renderDoneSummary(order) {
 }
 
 function renderForOrder(order) {
-  // Mit Notiz zu noch nicht hochgeladenen Designs darf man auch ohne
-  // zugeordnetes Design weiter zu Schritt 3 - sonst Sackgasse bei reinen
-  // Instagram-Anfragen ohne bestehendes Design im System.
-  if (order.designs.length === 0 && !order.notiz) {
+  // Mit Notiz oder der Markierung "Design noch nicht im System" darf man
+  // auch ohne zugeordnetes Design weiter zu Schritt 3 - sonst Sackgasse bei
+  // reinen Instagram-Anfragen ohne bestehendes Design im System.
+  if (order.designs.length === 0 && !order.notiz && !order.design_ausstehend) {
     renderStep2DesignPicker(order);
     return;
   }

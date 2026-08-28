@@ -1402,19 +1402,28 @@ app.get("/api/admin/design-lizenzen", requireAuth, (req, res) => {
 });
 
 // Rechte-Vergabe außerhalb des Bestellassistenten (z.B. Verkauf persönlich
-// vereinbart, nachträglich erfasst) - siehe db.addManualLizenz.
+// vereinbart, nachträglich erfasst) - siehe db.addManualLizenzBatch. items
+// erlaubt mehrere Design/Varianten-Kombinationen aus einem Verkauf in einer
+// gemeinsamen Beleg-Bestellung statt in mehreren unabhängigen (Feedback #17).
 app.post("/api/admin/design-lizenzen/manuell", requireAuth, (req, res) => {
-  const { designId, gruppe, kundeName, notiz } = req.body;
-  if (!designId || typeof designId !== "string") {
-    return res.status(400).json({ error: "designId ist erforderlich" });
+  const { items, kundeName, notiz } = req.body;
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "Mindestens ein Design ist erforderlich" });
+  }
+  for (const item of items) {
+    if (!item || typeof item.designId !== "string" || !item.designId) {
+      return res.status(400).json({ error: "designId ist für jede Zeile erforderlich" });
+    }
   }
   if (!kundeName || typeof kundeName !== "string" || !kundeName.trim()) {
     return res.status(400).json({ error: "kundeName ist erforderlich" });
   }
   try {
-    const result = db.addManualLizenz({
-      designId,
-      gruppe: gruppe && typeof gruppe === "string" ? gruppe.trim() || null : null,
+    const result = db.addManualLizenzBatch({
+      items: items.map((item) => ({
+        designId: item.designId,
+        gruppe: item.gruppe && typeof item.gruppe === "string" ? item.gruppe.trim() || null : null,
+      })),
       kundeName: kundeName.trim(),
       notiz: notiz && typeof notiz === "string" ? notiz.trim() : "",
     });

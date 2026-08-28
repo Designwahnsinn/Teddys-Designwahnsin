@@ -46,6 +46,69 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !imageLightbox.hidden) closeImageLightbox();
 });
 
+// "Als exklusiv markieren" direkt aus der Bilder-Verwaltung (Feedback #16) -
+// ohne Seitenwechsel zur Design-Rechte-Seite. Bestandteil ist immer "design"
+// (geschäftlich nie exklusiv für PNG/Hintergrund möglich, siehe Validierung
+// in server-admin.js), Gruppe kommt fest aus der Karte, von der aus geöffnet
+// wurde - kein Dropdown nötig, der Kontext (dieses Design, diese Variante)
+// ist bereits eindeutig.
+let currentDesignName = "";
+const exklusivModal = el("div", { className: "exklusiv-modal", hidden: true });
+document.body.appendChild(exklusivModal);
+
+function closeExklusivModal() {
+  exklusivModal.hidden = true;
+  exklusivModal.innerHTML = "";
+}
+exklusivModal.addEventListener("click", (e) => {
+  if (e.target === exklusivModal) closeExklusivModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !exklusivModal.hidden) closeExklusivModal();
+});
+
+function openExklusivModal(gruppe) {
+  const kundeInput = el("input", { type: "text", required: true });
+  const notizInput = el("input", { type: "text", placeholder: "z. B. wie und wann vereinbart" });
+  const errorMsg = el("p", { className: "edit-error" });
+  const cancelBtn = el("button", { type: "button", textContent: "Abbrechen" });
+  cancelBtn.addEventListener("click", closeExklusivModal);
+
+  const form = el("form", { className: "exklusiv-modal-form" }, [
+    el("h3", { textContent: "Als exklusiv markieren" }),
+    el("p", { className: "field-hint", textContent: `${designId} · ${currentDesignName} · ${gruppe || "(ohne Gruppe, ganzes Design)"}` }),
+    el("label", { textContent: "Kundin/Kunde" }), kundeInput,
+    el("label", { textContent: "Notiz (optional)" }), notizInput,
+    errorMsg,
+    el("div", { className: "card-actions" }, [el("button", { type: "submit", textContent: "Als exklusiv erfassen" }), cancelBtn]),
+  ]);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorMsg.textContent = "";
+    const res = await fetch("/api/admin/design-lizenzen/manuell", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: [{ designId, gruppe: gruppe || "" }],
+        kundeName: kundeInput.value,
+        notiz: notizInput.value,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      errorMsg.textContent = data.error || "Fehler beim Erfassen.";
+      return;
+    }
+    closeExklusivModal();
+  });
+
+  exklusivModal.innerHTML = "";
+  exklusivModal.appendChild(form);
+  exklusivModal.hidden = false;
+  kundeInput.focus();
+}
+
 function typSelect(name, selected) {
   const s = el("select", { name });
   IMAGE_TYP_VALUES.forEach((t) => s.appendChild(el("option", { value: t, textContent: t, selected: t === selected })));
@@ -336,6 +399,9 @@ function renderPairCard(pairId, members, allGruppen) {
     }
   });
 
+  const exklusivBtn = el("button", { className: "edit-btn", textContent: "🔒 Als exklusiv markieren" });
+  exklusivBtn.addEventListener("click", () => openExklusivModal(gruppeInput.value.trim()));
+
   const deleteBtn = el("button", { className: "delete-btn", textContent: "Löschen" });
   if (watermarked?.ist_hauptbild) {
     deleteBtn.disabled = true;
@@ -358,7 +424,7 @@ function renderPairCard(pairId, members, allGruppen) {
     savedHint,
     qualityWarning ? el("p", { className: "quality-warning", textContent: `⚠️ ${qualityWarning}` }) : null,
     sichtbarLabel,
-    el("div", { className: "card-actions" }, [hauptbildBtn, replaceBtn, replaceInput, deleteBtn].filter(Boolean)),
+    el("div", { className: "card-actions" }, [hauptbildBtn, replaceBtn, replaceInput, exklusivBtn, deleteBtn].filter(Boolean)),
   ].filter(Boolean));
 
   card.draggable = true;
@@ -464,6 +530,7 @@ async function init() {
   const design = designs.find((d) => d.id === designId);
 
   titleEl.textContent = design ? `Bilder verwalten – ${design.name}` : "Bilder verwalten";
+  currentDesignName = design ? design.name : "";
 
   // Mindestauflösung im Hinweistext an die tatsächliche Größe dieses Designs
   // anpassen (Standard 20cm, kann pro Design abweichen).

@@ -65,51 +65,93 @@ function render() {
 searchInput.addEventListener("input", render);
 
 // --- Rechte manuell erfassen (außerhalb des Bestellassistenten) ---
+// Mehrzeilig (Feedback #17): mehrere Design/Varianten-Kombinationen aus
+// demselben persönlich vereinbarten Verkauf landen dadurch in einer
+// gemeinsamen Beleg-Bestellung statt in mehreren unabhängigen. Die
+// Variante/Gruppe ist bewusst ein <select> aus den tatsächlich am Design
+// vorhandenen Gruppen statt Freitext - ein Tippfehler würde sonst dazu
+// führen, dass die Exklusivität nirgends greift (exakter String-Abgleich
+// in findExklusivKonflikte).
 
 const manualForm = document.getElementById("rechte-manual-form");
-const manualDesignInput = document.getElementById("rechte-manual-design");
+const manualRowsEl = document.getElementById("rechte-manual-rows");
+const manualAddRowBtn = document.getElementById("rechte-manual-add-row");
 const manualDesignList = document.getElementById("rechte-manual-design-list");
-const manualGruppeInput = document.getElementById("rechte-manual-gruppe");
-const manualGruppeList = document.getElementById("rechte-manual-gruppe-list");
 const manualKundeInput = document.getElementById("rechte-manual-kunde");
 const manualNotizInput = document.getElementById("rechte-manual-notiz");
 const manualError = document.getElementById("rechte-manual-error");
 
 let allDesigns = [];
+let manualRows = [];
 
 function findDesignByInput(value) {
-  const trimmed = value.trim();
+  const trimmed = (value || "").trim();
   return allDesigns.find((d) => d.id.toLowerCase() === trimmed.toLowerCase())
     || allDesigns.find((d) => `${d.id} · ${d.name}` === trimmed);
 }
 
-async function updateGruppeSuggestions() {
-  manualGruppeList.innerHTML = "";
-  const design = findDesignByInput(manualDesignInput.value);
-  if (!design) return;
-  const res = await fetch(`/api/admin/designs/${design.id}/images`);
-  if (!res.ok) return;
+async function fetchGruppen(designId) {
+  const res = await fetch(`/api/admin/designs/${designId}/images`);
+  if (!res.ok) return [];
   const images = await res.json();
-  const gruppen = [...new Set(images.map((img) => img.gruppe).filter(Boolean))];
-  gruppen.forEach((g) => manualGruppeList.appendChild(el("option", { value: g })));
+  return [...new Set(images.map((img) => img.gruppe).filter(Boolean))];
 }
 
-manualDesignInput.addEventListener("change", updateGruppeSuggestions);
+function addManualRow() {
+  const designInput = el("input", { type: "text", placeholder: "TD-ID oder Name …" });
+  designInput.setAttribute("list", "rechte-manual-design-list");
+  const gruppeSelect = el("select");
+  gruppeSelect.appendChild(el("option", { value: "", textContent: "— ganzes Design ohne Varianten —" }));
+  gruppeSelect.disabled = true;
+
+  designInput.addEventListener("change", async () => {
+    const design = findDesignByInput(designInput.value);
+    gruppeSelect.innerHTML = "";
+    gruppeSelect.appendChild(el("option", { value: "", textContent: "— ganzes Design ohne Varianten —" }));
+    if (!design) {
+      gruppeSelect.disabled = true;
+      return;
+    }
+    const gruppen = await fetchGruppen(design.id);
+    gruppen.forEach((g) => gruppeSelect.appendChild(el("option", { value: g, textContent: g })));
+    gruppeSelect.disabled = false;
+  });
+
+  const removeBtn = el("button", { type: "button", className: "delete-btn", textContent: "✕" });
+  const row = { designInput, gruppeSelect, wrap: null };
+  removeBtn.addEventListener("click", () => {
+    if (manualRows.length <= 1) return; // mindestens eine Zeile muss bleiben
+    manualRows = manualRows.filter((r) => r !== row);
+    row.wrap.remove();
+  });
+
+  const wrap = el("div", { className: "rechte-manual-row" }, [designInput, gruppeSelect, removeBtn]);
+  row.wrap = wrap;
+  manualRows.push(row);
+  manualRowsEl.appendChild(wrap);
+}
+
+manualAddRowBtn.addEventListener("click", addManualRow);
 
 manualForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   manualError.textContent = "";
-  const design = findDesignByInput(manualDesignInput.value);
-  if (!design) {
-    manualError.textContent = "Design nicht gefunden - bitte aus der Liste wählen.";
-    return;
+
+  const items = [];
+  for (const row of manualRows) {
+    const design = findDesignByInput(row.designInput.value);
+    if (!design) {
+      manualError.textContent = "Bei jeder Zeile muss ein Design aus der Liste gewählt werden.";
+      return;
+    }
+    items.push({ designId: design.id, gruppe: row.gruppeSelect.value });
   }
+
   const res = await fetch("/api/admin/design-lizenzen/manuell", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      designId: design.id,
-      gruppe: manualGruppeInput.value,
+      items,
       kundeName: manualKundeInput.value,
       notiz: manualNotizInput.value,
     }),
@@ -122,6 +164,9 @@ manualForm.addEventListener("submit", async (e) => {
   allRechte = data;
   render();
   manualForm.reset();
+  manualRowsEl.innerHTML = "";
+  manualRows = [];
+  addManualRow();
 });
 
 async function init() {
@@ -132,6 +177,7 @@ async function init() {
   allRechte = await rechteRes.json();
   allDesigns = await designsRes.json();
   allDesigns.forEach((d) => manualDesignList.appendChild(el("option", { value: `${d.id} · ${d.name}` })));
+  addManualRow();
   render();
 }
 

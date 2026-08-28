@@ -25,17 +25,10 @@
     <details class="rechte-manual-details">
       <summary>+ Rechte manuell erfassen (Verkauf außerhalb des Bestellassistenten)</summary>
       <form class="upload-form" id="rechte-manual-form">
-        <p class="field-hint">Für Verkäufe, die nicht über den Bestell-Assistenten liefen (z. B. persönlich vereinbart) und nachträglich als exklusiv erfasst werden müssen. Legt automatisch eine abgeschlossene Bestellung als Beleg an.</p>
-        <div>
-          <label for="rechte-manual-design">Design</label>
-          <input type="text" id="rechte-manual-design" list="rechte-manual-design-list" placeholder="TD-ID oder Name …" required>
-          <datalist id="rechte-manual-design-list"></datalist>
-        </div>
-        <div>
-          <label for="rechte-manual-gruppe">Variante/Farbe (optional, leer = ganzes Design ohne Varianten)</label>
-          <input type="text" id="rechte-manual-gruppe" list="rechte-manual-gruppe-list" placeholder="z. B. Blau, Nr. 2 …">
-          <datalist id="rechte-manual-gruppe-list"></datalist>
-        </div>
+        <p class="field-hint">Für Verkäufe, die nicht über den Bestell-Assistenten liefen (z. B. persönlich vereinbart) und nachträglich als exklusiv erfasst werden müssen. Legt automatisch eine abgeschlossene Bestellung als Beleg an. Mehrere Designs/Varianten aus demselben Verkauf landen in derselben Beleg-Bestellung.</p>
+        <datalist id="rechte-manual-design-list"></datalist>
+        <div id="rechte-manual-rows"></div>
+        <button type="button" id="rechte-manual-add-row" class="edit-btn">+ weiteres Design</button>
         <div>
           <label for="rechte-manual-kunde">Kundin/Kunde</label>
           <input type="text" id="rechte-manual-kunde" required>

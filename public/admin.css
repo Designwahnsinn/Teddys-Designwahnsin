@@ -751,6 +751,14 @@
 }
 .rechte-manual-details[open] summary { border-radius: 10px 10px 0 0; }
 .rechte-manual-details .upload-form { margin-top: 0; border-radius: 0 0 16px 16px; }
+.rechte-manual-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.rechte-manual-row input[type="text"] { flex: 1.2; }
+.rechte-manual-row select { flex: 1; }
 
 .wizard-design-search {
   width: 100%;
@@ -914,6 +922,27 @@
   line-height: 1;
   cursor: pointer;
 }
+.exklusiv-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1.5rem;
+}
+.exklusiv-modal-form {
+  background: var(--bg-alt);
+  border-radius: 12px;
+  padding: 1.25rem;
+  width: 100%;
+  max-width: 400px;
+  display: grid;
+  gap: 0.5rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+}
+.exklusiv-modal-form h3 { margin: 0; }
 .pair-thumb { flex: 1 1 50%; min-width: 0; position: relative; }
 .pair-thumb-label {
   position: absolute;
@@ -990,7 +1019,8 @@
   right: 1.25rem;
   bottom: 4.25rem;
   z-index: 500;
-  width: 260px;
+  width: 340px;
+  max-width: calc(100vw - 2.5rem);
   background: var(--bg-alt);
   border: 1px solid var(--border);
   border-radius: 12px;

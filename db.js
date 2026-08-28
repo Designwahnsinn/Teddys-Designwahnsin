@@ -393,7 +393,7 @@ ensureColumn("order_designs", "exklusiveGruppen", "TEXT");
 if (ensureColumn("orders", "schritt_bezahlung", "INTEGER NOT NULL DEFAULT 0")) {
   db.prepare("UPDATE orders SET schritt_bezahlung = 1 WHERE schritt_download = 1").run();
 }
-// Markiert die Beleg-Bestellungen aus addManualLizenz (Rechte-Vergabe außerhalb
+// Markiert die Beleg-Bestellungen aus addManualLizenzBatch (Rechte-Vergabe außerhalb
 // des Bestellassistenten) - die durchlaufen keinen echten Schritt-Ablauf und
 // sollen deshalb nicht zwischen echten Kundenbestellungen auftauchen (siehe
 // listOrders).
@@ -415,7 +415,7 @@ ensureColumn("orders", "rabatt_typ", "TEXT");
 ensureColumn("orders", "rabatt_wert", "REAL");
 // Kunde hat schon über Instagram (o.ä.) gekauft, das Design ist aber noch
 // nicht im System - Erinnerung, das nachzutragen, sobald das Design
-// hochgeladen ist (siehe auch design_lizenzen/addManualLizenz für die
+// hochgeladen ist (siehe auch design_lizenzen/addManualLizenzBatch für die
 // Exklusivitäts-Seite davon).
 ensureColumn("orders", "design_ausstehend", "INTEGER NOT NULL DEFAULT 0");
 // Testbestellung beim Ausprobieren des Systems - erhöht beim Abschließen
@@ -1334,7 +1334,7 @@ function setOrderFile(orderId, field, filename) {
   return getOrder(orderId);
 }
 
-// manuell=1 (Beleg-Bestellungen aus addManualLizenz) taucht hier absichtlich
+// manuell=1 (Beleg-Bestellungen aus addManualLizenzBatch) taucht hier absichtlich
 // nie auf - das sind keine echten Kundenbestellungen und würden in der
 // normalen Übersicht (z.B. mit Status "Erledigt" aber ohne Kunden-Bestätigung)
 // nur verwirren. Direkt per getOrder(id) weiterhin abrufbar (siehe
@@ -1568,19 +1568,42 @@ function revokeLizenz(id) {
 // persönlich/außerhalb des Systems vereinbart wurde und nachträglich als
 // exklusiv erfasst werden muss. Legt dafür eine minimale, bereits
 // abgeschlossene Bestellung an (nur um die Kundenzuordnung wie bei jeder
-// anderen Rechte-Vergabe nachvollziehbar zu dokumentieren), ohne den
-// vollen Schritt-Ablauf des Wizards zu durchlaufen. Nur "design" ist
-// exklusiv möglich (siehe Validierung in server-admin.js).
-const addManualLizenz = db.transaction(({ designId, gruppe, kundeName, notiz }) => {
-  const design = db.prepare("SELECT id FROM designs WHERE id = ?").get(designId);
-  if (!design) {
-    const err = new Error("Design nicht gefunden");
-    err.status = 404;
+// anderen Rechte-Vergabe nachvollziehbar zu dokumentieren), ohne den vollen
+// Schritt-Ablauf des Wizards zu durchlaufen. Nur "design" ist exklusiv
+// möglich (siehe Validierung in server-admin.js) - PNG/Hintergrund bleiben
+// geschäftlich immer für alle Kundinnen kaufbar, auch bei manueller Erfassung.
+// items: [{ designId, gruppe }] - mehrere Design/Varianten-Kombinationen aus
+// einem einzigen persönlich vereinbarten Verkauf landen dadurch in EINER
+// gemeinsamen Beleg-Bestellung statt in mehreren unabhängigen (Feedback #17).
+// Konflikte werden für alle Items vorab geprüft, bevor irgendetwas
+// geschrieben wird - entweder geht die ganze Erfassung durch oder keine.
+const addManualLizenzBatch = db.transaction(({ items, kundeName, notiz }) => {
+  if (!items || items.length === 0) {
+    const err = new Error("Mindestens ein Design ist erforderlich");
+    err.status = 400;
     throw err;
   }
-  const konflikte = findExklusivKonflikte(designId, [{ gruppe: gruppe || null, bestandteil: "design" }]);
+  const seen = new Set();
+  const konflikte = [];
+  for (const item of items) {
+    const design = db.prepare("SELECT id FROM designs WHERE id = ?").get(item.designId);
+    if (!design) {
+      const err = new Error(`Design ${item.designId} nicht gefunden`);
+      err.status = 404;
+      throw err;
+    }
+    const key = `${item.designId}::${item.gruppe || ""}`;
+    if (seen.has(key)) {
+      const err = new Error(`${item.designId}${item.gruppe ? ` (${item.gruppe})` : ""} ist mehrfach in der Liste`);
+      err.status = 400;
+      throw err;
+    }
+    seen.add(key);
+    const treffer = findExklusivKonflikte(item.designId, [{ gruppe: item.gruppe || null, bestandteil: "design" }]);
+    konflikte.push(...treffer.map((k) => ({ ...k, designId: item.designId })));
+  }
   if (konflikte.length > 0) {
-    const err = new Error("Diese Design-Variante ist bereits exklusiv vergeben");
+    const err = new Error(`Bereits exklusiv vergeben: ${konflikte.map((k) => `${k.designId} · ${k.gruppe || "(ohne Gruppe)"}`).join(", ")}`);
     err.status = 409;
     throw err;
   }
@@ -1599,10 +1622,16 @@ const addManualLizenz = db.transaction(({ designId, gruppe, kundeName, notiz }) 
     now
   );
   const orderId = orderInfo.lastInsertRowid;
-  db.prepare("INSERT INTO order_designs (order_id, design_id) VALUES (?, ?)").run(orderId, designId);
-  db.prepare(
-    "INSERT INTO design_lizenzen (order_id, design_id, gruppe, bestandteil, exklusiv, createdAt) VALUES (?, ?, ?, 'design', 1, ?)"
-  ).run(orderId, designId, gruppe || null, now);
+  const insertedDesignIds = new Set();
+  for (const item of items) {
+    if (!insertedDesignIds.has(item.designId)) {
+      db.prepare("INSERT INTO order_designs (order_id, design_id) VALUES (?, ?)").run(orderId, item.designId);
+      insertedDesignIds.add(item.designId);
+    }
+    db.prepare(
+      "INSERT INTO design_lizenzen (order_id, design_id, gruppe, bestandteil, exklusiv, createdAt) VALUES (?, ?, ?, 'design', 1, ?)"
+    ).run(orderId, item.designId, item.gruppe || null, now);
+  }
   return getDesignLizenzenUebersicht();
 });
 
@@ -1635,7 +1664,7 @@ module.exports = {
   findExklusivKonflikte,
   setOrderDesignExklusivitaet,
   getDesignLizenzenUebersicht,
-  addManualLizenz,
+  addManualLizenzBatch,
   revokeLizenz,
   getOrder,
   getOrderByToken,
