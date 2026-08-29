@@ -1588,6 +1588,43 @@ function getDesignLizenzenUebersicht() {
   }));
 }
 
+// Zeigt vorgemerkte (noch nicht final vergebene) Exklusivität aus offenen
+// Bestellungen - Feedback: sichtbar machen, was schon "in Arbeit" ist, ohne
+// jede Bestellung einzeln öffnen zu müssen. Anders als
+// getDesignLizenzenUebersicht (liest design_lizenzen, existiert erst ab
+// Abschluss) liest das hier direkt aus order_designs.exklusiveGruppen, die
+// bereits ab der Design-Zuordnung in Schritt 2 automatisch gesetzt wird
+// (siehe setOrderDesigns) - kann sich also noch ändern, bis die Bestellung
+// tatsächlich abgeschlossen wird.
+function getPendingExklusivitaet() {
+  const rows = db.prepare(`
+    SELECT od.design_id, od.exklusiveGruppen, d.name AS designName, d.category AS designCategory,
+           o.id AS order_id, o.kunde_name, o.kunde_email, o.status AS orderStatus
+    FROM order_designs od
+    JOIN designs d ON d.id = od.design_id
+    JOIN orders o ON o.id = od.order_id
+    WHERE o.status != 'Erledigt' AND o.manuell = 0 AND od.exklusiveGruppen IS NOT NULL
+  `).all();
+  const result = [];
+  for (const r of rows) {
+    const entries = JSON.parse(r.exklusiveGruppen).filter((e) => e.bestandteil === "design");
+    for (const entry of entries) {
+      result.push({
+        design_id: r.design_id,
+        designName: r.designName,
+        designCategory: r.designCategory,
+        gruppe: entry.gruppe,
+        bestandteil: entry.bestandteil,
+        order_id: r.order_id,
+        kunde_name: decryptField(r.kunde_name),
+        kunde_email: decryptField(r.kunde_email),
+        orderStatus: r.orderStatus,
+      });
+    }
+  }
+  return result;
+}
+
 // Nimmt eine vergebene Exklusivität zurück (z.B. Testdaten aufräumen oder
 // eine irrtümliche Vergabe korrigieren) - löscht nur den Lizenz-Eintrag,
 // die zugehörige Bestellung bleibt unangetastet als Beleg erhalten.
@@ -1648,10 +1685,20 @@ const addManualLizenzBatch = db.transaction(({ items, kundeName, notiz, existing
   const now = new Date().toISOString();
   let orderId;
   if (existingOrderId) {
-    const order = db.prepare("SELECT id FROM orders WHERE id = ?").get(existingOrderId);
+    const order = db.prepare("SELECT id, status FROM orders WHERE id = ?").get(existingOrderId);
     if (!order) {
       const err = new Error("Bestellung nicht gefunden");
       err.status = 404;
+      throw err;
+    }
+    // findExklusivKonflikte zählt nur Bestellungen mit status='Erledigt' als
+    // vergeben (siehe dort) - ein direkt in design_lizenzen eingetragener
+    // Eintrag für eine noch offene Bestellung würde sonst unsichtbar für
+    // künftige Konflikt-Prüfungen bleiben, obwohl er schon als exklusiv
+    // vergeben gilt (echtes Sicherheitsloch, kein Randfall).
+    if (order.status !== "Erledigt") {
+      const err = new Error('Bestellung muss zuerst den Status "Erledigt" haben, bevor Rechte daran angehängt werden können.');
+      err.status = 409;
       throw err;
     }
     orderId = existingOrderId;
@@ -1717,6 +1764,7 @@ module.exports = {
   findExklusivKonflikte,
   setOrderDesignExklusivitaet,
   getDesignLizenzenUebersicht,
+  getPendingExklusivitaet,
   addManualLizenzBatch,
   revokeLizenz,
   getOrder,

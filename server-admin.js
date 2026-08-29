@@ -1401,6 +1401,12 @@ app.get("/api/admin/design-lizenzen", requireAuth, (req, res) => {
   res.json(db.getDesignLizenzenUebersicht());
 });
 
+// Vorgemerkte (noch nicht final vergebene) Exklusivität aus offenen
+// Bestellungen - siehe db.getPendingExklusivitaet.
+app.get("/api/admin/design-lizenzen/vorgemerkt", requireAuth, (req, res) => {
+  res.json(db.getPendingExklusivitaet());
+});
+
 // Rechte-Vergabe außerhalb des Bestellassistenten (z.B. Verkauf persönlich
 // vereinbart, nachträglich erfasst) - siehe db.addManualLizenzBatch. items
 // erlaubt mehrere Design/Varianten-Kombinationen aus einem Verkauf in einer

@@ -760,6 +760,7 @@
 .rechte-manual-row input[type="text"] { flex: 1.2; }
 .rechte-manual-row select { flex: 1; }
 .rechte-manual-target-toggle { display: flex; gap: 1.2rem; margin-bottom: 0.5rem; font-weight: 500; }
+.rechte-section-heading { margin: 1.5rem 0 0.3rem; font-size: 1.05rem; }
 
 .wizard-design-search {
   width: 100%;

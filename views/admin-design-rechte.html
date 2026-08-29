@@ -56,6 +56,25 @@
 
     <input type="search" id="rechte-search" class="wizard-design-search" placeholder="Nach TD-ID, Design-Name oder Kundin suchen …">
 
+    <h2 class="rechte-section-heading">⏳ Vorgemerkt (Bestellung noch offen)</h2>
+    <p class="field-hint">Aus Bestellungen, die noch nicht abgeschlossen sind - kann sich noch ändern, keine endgültige Vergabe.</p>
+    <div class="order-table-wrap">
+      <table class="order-table">
+        <thead>
+          <tr>
+            <th>Design</th>
+            <th>Gruppe</th>
+            <th>Kundin</th>
+            <th>Bestellstatus</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rechte-pending-rows"></tbody>
+      </table>
+      <p id="rechte-pending-empty" class="order-empty" hidden>Keine vorgemerkte Exklusivität in offenen Bestellungen.</p>
+    </div>
+
+    <h2 class="rechte-section-heading">🔒 Endgültig vergeben</h2>
     <div class="order-table-wrap">
       <table class="order-table">
         <thead>

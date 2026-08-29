@@ -1,8 +1,11 @@
 const searchInput = document.getElementById("rechte-search");
 const rowsEl = document.getElementById("rechte-rows");
 const emptyEl = document.getElementById("rechte-empty");
+const pendingRowsEl = document.getElementById("rechte-pending-rows");
+const pendingEmptyEl = document.getElementById("rechte-pending-empty");
 
 let allRechte = [];
+let allPending = [];
 
 function el(tag, props, children) {
   const node = document.createElement(tag);
@@ -45,21 +48,39 @@ function renderRow(r) {
   ]);
 }
 
+function matchesQuery(r, query) {
+  return (
+    r.design_id.toLowerCase().includes(query) ||
+    r.designName.toLowerCase().includes(query) ||
+    (r.gruppe || "").toLowerCase().includes(query) ||
+    r.kunde_name.toLowerCase().includes(query) ||
+    r.kunde_email.toLowerCase().includes(query)
+  );
+}
+
+function renderPendingRow(r) {
+  return el("tr", {}, [
+    el("td", {}, [el("span", { textContent: `${r.design_id} · ${r.designName}` })]),
+    el("td", { textContent: r.gruppe || "(ohne Gruppe)" }),
+    el("td", { textContent: `${r.kunde_name} (${r.kunde_email})` }),
+    el("td", { textContent: r.orderStatus }),
+    el("td", { className: "order-table-actions" }, [
+      el("a", { className: "admin-nav-link", textContent: "Bestellung ansehen", href: `/mitarbeiter/bestellungen/bearbeiten?id=${r.order_id}` }),
+    ]),
+  ]);
+}
+
 function render() {
   const query = searchInput.value.trim().toLowerCase();
-  const filtered = query
-    ? allRechte.filter((r) =>
-        r.design_id.toLowerCase().includes(query) ||
-        r.designName.toLowerCase().includes(query) ||
-        (r.gruppe || "").toLowerCase().includes(query) ||
-        r.kunde_name.toLowerCase().includes(query) ||
-        r.kunde_email.toLowerCase().includes(query)
-      )
-    : allRechte;
-
+  const filtered = query ? allRechte.filter((r) => matchesQuery(r, query)) : allRechte;
   rowsEl.innerHTML = "";
   emptyEl.hidden = filtered.length > 0;
   filtered.forEach((r) => rowsEl.appendChild(renderRow(r)));
+
+  const filteredPending = query ? allPending.filter((r) => matchesQuery(r, query)) : allPending;
+  pendingRowsEl.innerHTML = "";
+  pendingEmptyEl.hidden = filteredPending.length > 0;
+  filteredPending.forEach((r) => pendingRowsEl.appendChild(renderPendingRow(r)));
 }
 
 searchInput.addEventListener("input", render);
@@ -209,12 +230,14 @@ manualForm.addEventListener("submit", async (e) => {
 });
 
 async function init() {
-  const [rechteRes, designsRes, ordersRes] = await Promise.all([
+  const [rechteRes, pendingRes, designsRes, ordersRes] = await Promise.all([
     fetch("/api/admin/design-lizenzen"),
+    fetch("/api/admin/design-lizenzen/vorgemerkt"),
     fetch("/api/admin/designs"),
     fetch("/api/admin/orders"),
   ]);
   allRechte = await rechteRes.json();
+  allPending = await pendingRes.json();
   allDesigns = await designsRes.json();
   allOrders = await ordersRes.json();
   allDesigns.forEach((d) => manualDesignList.appendChild(el("option", { value: `${d.id} · ${d.name}` })));
