@@ -453,6 +453,15 @@ function safeFileNamePart(text) {
 
 function requireAuth(req, res, next) {
   if (req.session.loggedIn) return next();
+  // /api/*-Routen (JSON, aber auch die CSV-Exporte) NICHT auf die Login-
+  // Seite umleiten: ein <a download> auf z.B. /api/admin/export/designs.csv
+  // folgt einem 302 automatisch und speichert dann die dort ankommende
+  // Login-HTML-Seite unter dem gewünschten Dateinamen ab (designs.csv
+  // enthält plötzlich Login-HTML statt echter Daten) - ein 401 ohne
+  // Redirect lässt den Browser den Download stattdessen sauber abbrechen.
+  if (req.path.startsWith("/api/")) {
+    return res.status(401).json({ error: "Sitzung abgelaufen - bitte neu anmelden." });
+  }
   res.redirect("/mitarbeiter");
 }
 
