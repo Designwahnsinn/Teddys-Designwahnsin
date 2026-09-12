@@ -149,19 +149,34 @@ function addManualRow() {
   const gruppeSelect = el("select");
   gruppeSelect.appendChild(el("option", { value: "", textContent: "— ganzes Design ohne Varianten —" }));
   gruppeSelect.disabled = true;
+  // Ohne diesen Hinweis blieb das Gruppe-Feld bei jedem Tippfehler oder nur
+  // teilweise eingegebenen/nicht per Vorschlag bestätigten Design-Namen
+  // stillschweigend deaktiviert (Feedback: "ich kann die Variante nicht
+  // auswählen") - jetzt sichtbar erklärt statt rätselhaft gesperrt.
+  const designHint = el("p", { className: "rechte-manual-row-hint", hidden: true, textContent: "⚠️ Design nicht erkannt - bitte aus der Liste wählen (Vorschlag anklicken oder vollständige TD-ID eingeben)." });
 
-  designInput.addEventListener("change", async () => {
+  async function syncFromDesignInput() {
     const design = findDesignByInput(designInput.value);
-    gruppeSelect.innerHTML = "";
-    gruppeSelect.appendChild(el("option", { value: "", textContent: "— ganzes Design ohne Varianten —" }));
     if (!design) {
+      gruppeSelect.innerHTML = "";
+      gruppeSelect.appendChild(el("option", { value: "", textContent: "— ganzes Design ohne Varianten —" }));
       gruppeSelect.disabled = true;
+      designHint.hidden = !designInput.value.trim();
       return;
     }
+    designHint.hidden = true;
+    gruppeSelect.innerHTML = "";
+    gruppeSelect.appendChild(el("option", { value: "", textContent: "— ganzes Design ohne Varianten —" }));
     const gruppen = await fetchGruppen(design.id);
     gruppen.forEach((g) => gruppeSelect.appendChild(el("option", { value: g, textContent: g })));
     gruppeSelect.disabled = false;
-  });
+  }
+  // "change" allein reagierte in machen Browsern erst nach Verlassen des
+  // Feldes (Blur), auch wenn der native Datalist-Vorschlag schon per Klick
+  // übernommen wurde - zusätzlich an "input" gebunden, damit das Gruppe-Feld
+  // sofort reagiert, sobald der Text zu einem Design passt.
+  designInput.addEventListener("input", syncFromDesignInput);
+  designInput.addEventListener("change", syncFromDesignInput);
 
   const removeBtn = el("button", { type: "button", className: "delete-btn", textContent: "✕" });
   const row = { designInput, gruppeSelect, wrap: null };
@@ -171,7 +186,7 @@ function addManualRow() {
     row.wrap.remove();
   });
 
-  const wrap = el("div", { className: "rechte-manual-row" }, [designInput, gruppeSelect, removeBtn]);
+  const wrap = el("div", { className: "rechte-manual-row" }, [designInput, gruppeSelect, removeBtn, designHint]);
   row.wrap = wrap;
   manualRows.push(row);
   manualRowsEl.appendChild(wrap);
